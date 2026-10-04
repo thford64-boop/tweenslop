@@ -567,9 +567,10 @@ function rebuildPart(p) {
     for (let y = ya; y < yb && !on; y += 2) for (let x = xa; x < xb; x += 2) if (alpha[y * bw + x] > 8) { on = 1; break; }
     cellOn[j * nx + i] = on;
   }
-  const changed = p.nx !== nx || p.ny !== ny;
+  const had = !!p.tex, changed = had && (p.nx !== nx || p.ny !== ny);
   Object.assign(p, { tex, alpha, bx, by, bw, bh, nx, ny, cellOn, _swVer: 0 });
-  if (changed && S.anim.liq[p.id] && S.anim.liq[p.id].keys.length) { delete S.anim.liq[p.id]; toast('Liquify keys on "' + p.name + '" were cleared because its shape changed.'); }
+  const lq = S.anim.liq[p.id], need = (nx + 1) * (ny + 1) * 2;
+  if (lq && lq.keys.length && (changed || lq.keys.some(k => k.f.length !== need))) { delete S.anim.liq[p.id]; toast('Liquify keys on "' + p.name + '" were cleared because its shape changed.'); }
 }
 function ensureAllParts() { for (const p of S.parts) if (p.dirty || (p.tex === null && p.mask && !p._built)) { rebuildPart(p); p._built = true; } }
 
