@@ -1,5 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>Tweenslop</title>
+<!doctype html><html lang="en"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}[hidden]{display:none!important}body{margin:0;font:14px system-ui}</style></head><body><title>Tweenslop</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -148,6 +147,17 @@ input[type=checkbox]{accent-color:var(--accent)}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
+.tutm{width:min(480px,100%);gap:14px}
+.tutdots{display:flex;gap:6px}
+.tutdots i{height:4px;flex:1;border-radius:2px;background:var(--line)}
+.tutdots i.on{background:var(--accent)}
+.tuticons{display:flex;gap:8px;flex-wrap:wrap}
+.tuticons span{width:38px;height:38px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);display:grid;place-items:center;color:var(--accent)}
+.tutp{margin:0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:9px;line-height:1.5}
+.tutp b{font-weight:700}
+.tutnav{margin-top:2px}
+.chk{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:12.5px}
+
 .modal-back{position:fixed;inset:0;z-index:50;background:rgba(10,8,20,.55);display:grid;place-items:center;padding:16px}
 .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px;width:min(420px,100%);display:flex;flex-direction:column;gap:12px}
 .modal h2{margin:0;font:800 22px/1 var(--f-display);letter-spacing:-.02em}
@@ -198,6 +208,7 @@ button:disabled{opacity:.4;cursor:default}
     <div class="grow"></div>
     <button class="btn ib" id="btnUndo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg class="i"><use href="#i-undo"/></svg></button>
     <button class="btn ib" id="btnRedo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg class="i"><use href="#i-redo"/></svg></button>
+    <button class="btn ib" id="btnHelp" aria-label="How to use Tweenslop" title="How to use">?</button>
     <button class="btn" id="btnOpen"><svg class="i"><use href="#i-upload"/></svg>Image</button>
     <button class="btn" id="btnProject" title="Open a saved .json project">Open project</button>
     <button class="btn primary" id="btnExport"><svg class="i"><use href="#i-download"/></svg>Export</button>
@@ -1580,6 +1591,7 @@ $('#zFit').onclick = () => { S.userView = false; fitView(); };
 document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' && e.target.type !== 'range' && e.target.type !== 'checkbox' || tag === 'select' || tag === 'textarea') return;
+  if (!tut.hidden) { if (e.key === 'Escape') closeTut(); else if (e.key === 'ArrowRight' && tutI < TUT.length - 1) { tutI++; renderTut(); } else if (e.key === 'ArrowLeft' && tutI > 0) { tutI--; renderTut(); } return; }
   if (!$('#modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
   const k = e.key, ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && k.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
@@ -1636,45 +1648,68 @@ $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
 
 function loadSample() {
   const c = mkCanvas(600, 720); setupDoc(c); const g = c.getContext('2d');
-  const INK = '#2b2140', SHIRT = '#e8457c', PANTS = '#3b3f8f', SKIN = '#ffcf9e';
-  const defs = [
-    ['Left leg', (x, col, gr, det) => { x.strokeStyle = col; x.lineWidth = 46 + gr; x.lineCap = 'round'; x.beginPath(); x.moveTo(262, 480); x.lineTo(262, 636); x.stroke(); x.fillStyle = det ? '#fff' : col; x.beginPath(); x.ellipse(272, 652, 38 + gr / 2, 17 + gr / 2, 0, 0, 7); x.fill(); }, PANTS],
-    ['Right leg', (x, col, gr, det) => { x.strokeStyle = col; x.lineWidth = 46 + gr; x.lineCap = 'round'; x.beginPath(); x.moveTo(338, 480); x.lineTo(338, 636); x.stroke(); x.fillStyle = det ? '#fff' : col; x.beginPath(); x.ellipse(328, 652, 38 + gr / 2, 17 + gr / 2, 0, 0, 7); x.fill(); }, PANTS],
-    ['Torso', (x, col, gr, det) => { x.fillStyle = col; x.beginPath(); x.roundRect(205 - gr / 2, 265 - gr / 2, 190 + gr, 215 + gr, 44); x.fill(); if (det) { x.fillStyle = '#ffd23f'; x.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 17 : 40; x.lineTo(300 + Math.cos(a) * r, 380 + Math.sin(a) * r); } x.closePath(); x.fill(); } }, SHIRT],
-    ['Left arm', (x, col, gr, det) => { x.strokeStyle = col; x.lineWidth = 38 + gr; x.lineCap = 'round'; x.beginPath(); x.moveTo(225, 308); x.lineTo(160, 432); x.stroke(); x.fillStyle = det ? SKIN : col; x.beginPath(); x.arc(156, 440, 25 + gr / 2, 0, 7); x.fill(); }, SHIRT],
-    ['Right arm', (x, col, gr, det) => { x.strokeStyle = col; x.lineWidth = 38 + gr; x.lineCap = 'round'; x.beginPath(); x.moveTo(375, 308); x.lineTo(440, 432); x.stroke(); x.fillStyle = det ? SKIN : col; x.beginPath(); x.arc(444, 440, 25 + gr / 2, 0, 7); x.fill(); }, SHIRT],
-    ['Head', (x, col, gr, det) => {
-      x.fillStyle = col; x.beginPath(); x.ellipse(300, 185, 96 + gr / 2, 84 + gr / 2, 0, 0, 7); x.fill();
-      if (det) {
-        x.fillStyle = INK; x.beginPath(); x.ellipse(264, 180, 9, 13, 0, 0, 7); x.ellipse(336, 180, 9, 13, 0, 0, 7); x.fill();
-        x.fillStyle = '#fff'; x.beginPath(); x.arc(267, 175, 3.5, 0, 7); x.arc(339, 175, 3.5, 0, 7); x.fill();
-        x.strokeStyle = INK; x.lineWidth = 5; x.lineCap = 'round'; x.beginPath(); x.arc(300, 205, 28, 0.2, Math.PI - 0.2); x.stroke();
-        x.fillStyle = 'rgba(232,69,124,.35)'; x.beginPath(); x.ellipse(238, 212, 15, 9, 0, 0, 7); x.ellipse(362, 212, 15, 9, 0, 0, 7); x.fill();
-        x.fillStyle = '#7b4bd6'; x.beginPath(); x.moveTo(250, 118); x.quadraticCurveTo(300, 40, 352, 118); x.quadraticCurveTo(300, 92, 250, 118); x.fill();
-      }
-    }, SKIN]
-  ];
+  const INK = '#2b2140', GOLD = '#e8b43a', BLUE = '#2d5fb8', TURQ = '#33b3a6', SKIN = '#c98a52', FACE = '#d9a066', LINEN = '#f6f1e3';
+  const nemes = new Path2D('M190,318 L188,205 C180,110 235,66 300,66 C365,66 420,110 412,205 L410,318 L354,322 L352,215 L248,215 L246,322 Z');
+  const beard = new Path2D('M286,258 L314,258 L317,316 Q300,332 283,316 Z');
+  const limb = (x, col, gr, ax, ay, bx, by, wd) => { x.strokeStyle = col; x.lineWidth = wd + gr; x.lineCap = 'round'; x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke(); };
+  const leg = sx => (x, col, gr, det) => { limb(x, col, gr, sx, 480, sx, 636, 46); x.fillStyle = det ? GOLD : col; x.beginPath(); x.ellipse(sx + (sx < 300 ? 10 : -10), 652, 38 + gr / 2, 17 + gr / 2, 0, 0, 7); x.fill(); };
+  const arm = (sx, ex, hx) => (x, col, gr, det) => {
+    limb(x, col, gr, sx, 308, ex, 432, 38); x.fillStyle = col; x.beginPath(); x.arc(hx, 440, 25 + gr / 2, 0, 7); x.fill();
+    if (det) { x.strokeStyle = GOLD; x.lineWidth = 8; for (const f of [0.3, 0.86]) { x.beginPath(); x.arc(sx + (ex - sx) * f, 308 + 124 * f, 19, 0, 7); x.stroke(); } }
+  };
+  const torso = (x, col, gr, det) => {
+    const rr = () => { x.beginPath(); x.roundRect(205 - gr / 2, 265 - gr / 2, 190 + gr, 215 + gr, 44); };
+    rr(); x.fillStyle = col; x.fill();
+    if (!det) return;
+    x.save(); rr(); x.clip();
+    x.fillStyle = LINEN; x.fillRect(195, 410, 210, 80);
+    x.strokeStyle = '#d8cfb8'; x.lineWidth = 2; for (let i = 0; i < 9; i++) { x.beginPath(); x.moveTo(215 + i * 20, 414); x.lineTo(209 + i * 20, 480); x.stroke(); }
+    x.fillStyle = GOLD; x.fillRect(195, 396, 210, 16); x.fillStyle = BLUE; for (let i = 0; i < 7; i++) x.fillRect(214 + i * 28, 399, 12, 10);
+    [[108, GOLD], [92, BLUE], [76, TURQ], [62, GOLD], [50, SKIN]].forEach(([r, cc]) => { x.fillStyle = cc; x.beginPath(); x.ellipse(300, 282, r, r * 0.98, 0, 0, Math.PI); x.closePath(); x.fill(); });
+    x.restore();
+  };
+  const head = (x, col, gr, det) => {
+    const edge = () => { if (gr) { x.strokeStyle = col; x.lineWidth = gr; x.lineJoin = 'round'; x.stroke(); } };
+    x.fillStyle = det ? GOLD : col; x.fill(nemes); if (gr) { x.strokeStyle = col; x.lineWidth = gr; x.lineJoin = 'round'; x.stroke(nemes); }
+    if (det) { x.save(); x.clip(nemes); x.fillStyle = BLUE; for (let y = 58; y < 330; y += 24) x.fillRect(180, y, 250, 12); x.restore(); }
+    x.fillStyle = det ? FACE : col; x.beginPath(); x.ellipse(300, 192, 58, 74, 0, 0, 7); x.fill(); edge();
+    x.fillStyle = det ? BLUE : col; x.fill(beard); if (gr) { x.strokeStyle = col; x.lineWidth = gr; x.lineJoin = 'round'; x.stroke(beard); }
+    if (!det) return;
+    x.save(); x.clip(beard); x.fillStyle = GOLD; for (const y of [274, 294, 312]) x.fillRect(280, y, 40, 6); x.restore();
+    x.strokeStyle = GOLD; x.lineWidth = 9; x.lineCap = 'butt'; x.beginPath(); x.ellipse(300, 192, 58, 74, 0, Math.PI * 1.1, Math.PI * 1.9); x.stroke();
+    for (const s of [-1, 1]) {
+      const cx = 300 + s * 34, ix = cx - s * 20, ox = cx + s * 22;
+      x.fillStyle = '#fff'; x.beginPath(); x.moveTo(ix, 190); x.quadraticCurveTo(cx, 172, ox, 184); x.quadraticCurveTo(cx + 2, 202, ix, 190); x.fill();
+      x.fillStyle = '#2b1a12'; x.beginPath(); x.arc(cx, 188, 7, 0, 7); x.fill(); x.fillStyle = '#fff'; x.beginPath(); x.arc(cx + 2, 185, 2, 0, 7); x.fill();
+      x.strokeStyle = INK; x.lineWidth = 5; x.lineCap = 'round'; x.beginPath(); x.moveTo(ix, 190); x.quadraticCurveTo(cx, 172, ox, 184); x.lineTo(cx + s * 38, 192); x.stroke();
+      x.strokeStyle = '#1e2a52'; x.lineWidth = 7; x.beginPath(); x.moveTo(cx - s * 22, 164); x.quadraticCurveTo(cx, 152, cx + s * 26, 160); x.stroke();
+    }
+    x.strokeStyle = '#9a5f2e'; x.lineWidth = 4; x.beginPath(); x.moveTo(300, 198); x.quadraticCurveTo(293, 216, 301, 220); x.moveTo(292, 222); x.quadraticCurveTo(300, 227, 309, 222); x.stroke();
+    x.fillStyle = '#a8453e'; x.beginPath(); x.ellipse(300, 238, 17, 6, 0, 0, 7); x.fill(); x.strokeStyle = '#6b2420'; x.lineWidth = 2; x.beginPath(); x.moveTo(284, 238); x.lineTo(316, 238); x.stroke();
+    x.fillStyle = GOLD; x.beginPath(); x.moveTo(300, 100); x.lineTo(310, 130); x.lineTo(290, 130); x.closePath(); x.fill();
+    x.fillStyle = '#c62f3f'; x.beginPath(); x.arc(300, 122, 4, 0, 7); x.fill();
+  };
+  const defs = [['Left leg', leg(262), SKIN], ['Right leg', leg(338), SKIN], ['Torso', torso, SKIN], ['Left arm', arm(225, 160, 156), SKIN], ['Right arm', arm(375, 440, 444), SKIN], ['Head', head, GOLD]];
   const parts = {};
   for (const [name, fn, col] of defs) {
     fn(g, INK, 7, false); fn(g, col, 0, true);
-    const p = newPart(name); const m = p.mask.getContext('2d'); fn(m, '#fff', 7, false); parts[name] = p; p.tintDirty = true;
+    const p = newPart(name); fn(p.mask.getContext('2d'), '#fff', 7, false); parts[name] = p; p.tintDirty = true;
   }
   const B = (name, hx, hy, tx, ty, parent) => { const b = { id: uid('b'), name, parent: parent || null, hx, hy, tx, ty }; S.bones.push(b); return b; };
-  const torso = B('Torso', 300, 480, 300, 285), head = B('Head', 300, 275, 300, 100, null);
-  head.parent = torso.id;
-  const la = B('Left arm', 225, 308, 160, 432, torso.id), ra = B('Right arm', 375, 308, 440, 432, torso.id);
-  const ll = B('Left leg', 262, 480, 262, 636, torso.id), rl = B('Right leg', 338, 480, 338, 636, torso.id);
+  const torsoB = B('Torso', 300, 480, 300, 285), headB = B('Head', 300, 275, 300, 100, torsoB.id);
+  const la = B('Left arm', 225, 308, 160, 432, torsoB.id), ra = B('Right arm', 375, 308, 440, 432, torsoB.id);
+  const ll = B('Left leg', 262, 480, 262, 636, torsoB.id), rl = B('Right leg', 338, 480, 338, 636, torsoB.id);
   rebuildSkeleton();
-  parts['Torso'].bone = torso.id; parts['Head'].bone = head.id; parts['Left arm'].bone = la.id; parts['Right arm'].bone = ra.id; parts['Left leg'].bone = ll.id; parts['Right leg'].bone = rl.id;
+  parts['Torso'].bone = torsoB.id; parts['Head'].bone = headB.id; parts['Left arm'].bone = la.id; parts['Right arm'].bone = ra.id; parts['Left leg'].bone = ll.id; parts['Right leg'].bone = rl.id;
   parts['Left arm'].soft = true; parts['Right arm'].soft = true; parts['Head'].soft = true;
-  const K = (b, rows) => { S.anim.bones[b.id] = { keys: rows.map(([t, x, y, r, sx, sy, e]) => ({ t, x, y, r, sx, sy, e })) }; };
-  K(torso, [[0, 0, 0, 0, 1, 1, 'inOutSine'], [0.5, 0, -18, 0, .98, 1.03, 'inOutSine'], [1, 0, 0, 0, 1, 1, 'inOutSine'], [1.5, 0, -18, 0, .98, 1.03, 'inOutSine'], [2, 0, 0, 0, 1, 1, 'inOutSine']]);
-  K(head, [[0, 0, 0, 0, 1, 1, 'inOutSine'], [0.5, 0, 0, -7, 1, 1, 'inOutSine'], [1, 0, 0, 0, 1, 1, 'inOutSine'], [1.5, 0, 0, 7, 1, 1, 'inOutSine'], [2, 0, 0, 0, 1, 1, 'inOutSine']]);
-  K(ra, [[0, 0, 0, 0, 1, 1, 'outBack'], [0.5, 0, 0, -62, 1, 1, 'inOutSine'], [0.75, 0, 0, -38, 1, 1, 'inOutSine'], [1, 0, 0, -62, 1, 1, 'inOutSine'], [1.25, 0, 0, -38, 1, 1, 'inOutSine'], [1.5, 0, 0, -62, 1, 1, 'inOutCubic'], [2, 0, 0, 0, 1, 1, 'inOutSine']]);
-  K(la, [[0, 0, 0, 0, 1, 1, 'inOutSine'], [0.5, 0, 0, 10, 1, 1, 'inOutSine'], [1, 0, 0, 0, 1, 1, 'inOutSine'], [1.5, 0, 0, 10, 1, 1, 'inOutSine'], [2, 0, 0, 0, 1, 1, 'inOutSine']]);
-  K(ll, [[0, 0, 0, 0, 1, 1, 'inOutSine'], [0.5, 0, 0, 4, 1, 1.0, 'inOutSine'], [1, 0, 0, 0, 1, 1, 'inOutSine'], [1.5, 0, 0, 4, 1, 1, 'inOutSine'], [2, 0, 0, 0, 1, 1, 'inOutSine']]);
-  K(rl, [[0, 0, 0, 0, 1, 1, 'inOutSine'], [0.5, 0, 0, -4, 1, 1, 'inOutSine'], [1, 0, 0, 0, 1, 1, 'inOutSine'], [1.5, 0, 0, -4, 1, 1, 'inOutSine'], [2, 0, 0, 0, 1, 1, 'inOutSine']]);
-  S.sel.bone = ra.id; S.sel.part = parts['Right arm'].id; S.sel.key = { kind: 'bone', id: ra.id, t: 0.5 };
+  const E = 'inOutSine', K = (b, rows) => { S.anim.bones[b.id] = { keys: rows.map(([t, x, y, r, sx, sy, e]) => ({ t, x, y, r, sx, sy, e })) }; };
+  K(torsoB, [[0, 0, 0, 0, 1, 1, E], [0.5, 0, -18, 0, .98, 1.03, E], [1, 0, 0, 0, 1, 1, E], [1.5, 0, -18, 0, .98, 1.03, E], [2, 0, 0, 0, 1, 1, E]]);
+  K(headB, [[0, 0, 0, 0, 1, 1, E], [0.5, 0, 0, -7, 1, 1, E], [1, 0, 0, 0, 1, 1, E], [1.5, 0, 0, 7, 1, 1, E], [2, 0, 0, 0, 1, 1, E]]);
+  K(ra, [[0, 0, 0, 0, 1, 1, 'outBack'], [0.5, 0, 0, -62, 1, 1, E], [0.75, 0, 0, -38, 1, 1, E], [1, 0, 0, -62, 1, 1, E], [1.25, 0, 0, -38, 1, 1, E], [1.5, 0, 0, -62, 1, 1, 'inOutCubic'], [2, 0, 0, 0, 1, 1, E]]);
+  K(la, [[0, 0, 0, 0, 1, 1, E], [0.5, 0, 0, 10, 1, 1, E], [1, 0, 0, 0, 1, 1, E], [1.5, 0, 0, 10, 1, 1, E], [2, 0, 0, 0, 1, 1, E]]);
+  K(ll, [[0, 0, 0, 0, 1, 1, E], [0.5, 0, 0, 4, 1, 1, E], [1, 0, 0, 0, 1, 1, E], [1.5, 0, 0, 4, 1, 1, E], [2, 0, 0, 0, 1, 1, E]]);
+  K(rl, [[0, 0, 0, 0, 1, 1, E], [0.5, 0, 0, -4, 1, 1, E], [1, 0, 0, 0, 1, 1, E], [1.5, 0, 0, -4, 1, 1, E], [2, 0, 0, 0, 1, 1, E]]);
+  S.sel.bone = headB.id; S.sel.part = parts['Head'].id; S.sel.key = { kind: 'bone', id: headB.id, t: 0.5 };
   ensureAllParts(); finishDoc('animate'); S.tool = 'rotate'; setTime(0.5); refreshAll();
 }
 $('#btnSample2').onclick = loadSample;
@@ -1792,11 +1827,20 @@ async function encodeGif(sc, bg, onProg) {
   out.push(0x3B);
   return new Blob([new Uint8Array(out)], { type: 'image/gif' });
 }
+function browserDownload(name, data) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: /\.json$/.test(name) ? 'application/json' : 'application/octet-stream' });
+  const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000); $('#xStat').textContent = 'Downloaded ' + name;
+}
 async function saveFile(name, data) {
-  const dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
-  if (!dl) { $('#xStat').textContent = 'Saving files is not available in this view. Open the page in the Claude app to export.'; return; }
+  const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
+  if (!dl) { browserDownload(name, data); return; }
   try { const r = await dl.save({ filename: name, data }); $('#xStat').textContent = r.status === 'saved' ? 'Saved ' + name : 'Sent ' + name; }
-  catch (err) { $('#xStat').textContent = err && err.code === 'declined' ? 'Save cancelled.' : 'Could not save: ' + (err && err.message || 'unknown error'); }
+  catch (err) {
+    if (err && err.code === 'declined') $('#xStat').textContent = 'Save cancelled.';
+    else if (err && ['unavailable', 'not_granted', 'capability_disabled', 'capability_removed'].includes(err.code)) browserDownload(name, data);
+    else $('#xStat').textContent = 'Could not save: ' + (err && err.message || 'unknown error');
+  }
 }
 const blobOf = (cv, type) => new Promise(r => cv.toBlob(r, type || 'image/png'));
 const expScale = () => +($('#xScale [aria-pressed="true"]').dataset.s);
@@ -1842,6 +1886,46 @@ modal.addEventListener('click', async e => {
   b.disabled = false;
 });
 
+
+/* ================= tutorial ================= */
+const TUT = [
+  { t: 'Start with a picture', icons: ['upload'], p: ['Upload any image of a character: a drawing, a photo, a sticker. You can also drag one onto the stage or paste it.', 'Tweenslop has three steps along the top: <b>Cut</b>, <b>Rig</b>, <b>Animate</b>. Work left to right.', 'Everything stays in your browser. Nothing is uploaded anywhere.'] },
+  { t: '1. Cut the character into parts', icons: ['lasso', 'poly', 'brush', 'wand', 'eraser'], p: ['Press <b>New part</b>, then trace the head, an arm, a leg, the body with the Lasso, Polygon, Brush or Wand. One part for each piece that should move on its own.', 'Use <b>Subtract</b> to clean the edges. Turn on <b>Preview cutouts</b> to see a part by itself.', 'Parts higher in the list sit in front of the ones below.'] },
+  { t: '2. Add bones', icons: ['bone', 'select'], p: ['Pick the <b>Bone</b> tool and drag from where a part pivots (the shoulder) to where it ends (the hand).', 'Start the next bone on the end of one that exists, and it becomes a child that follows it (shoulder, then elbow, then wrist).', 'Choose which bone each part follows under <b>Moves with</b>, or press <b>Auto-bind</b> to match them by distance. <b>Soft bend</b> smooths the joints.'] },
+  { t: '3. Animate with keyframes', icons: ['move', 'rotate', 'size', 'expand', 'liquify'], p: ['Pick Move, Rotate, Size, Expand or Liquify and drag a part or bone. Every change makes a keyframe at the playhead.', 'Click the timeline ruler to jump to another moment, then pose again. Tweenslop fills in the movement between keys.', 'Select a key (a diamond), then choose its <b>easing</b> next to the timeline: smooth, overshoot, bounce, jelly, snap. Press <b>Space</b> to play.'] },
+  { t: 'Export, shortcuts, done', icons: ['download'], p: ['<b>Export</b> saves an animated GIF, a WebM video, a sprite sheet, one PNG frame, or a project file you can open again later with <b>Open project</b>.', '<b>Space</b> play, <b>K</b> key, <b>← →</b> step a frame, <b>1 2 3</b> switch steps, <b>Ctrl+Z</b> undo, <b>F</b> fit, <b>H</b> pan, mouse wheel zoom.', 'Reopen this guide any time with the <b>?</b> button at the top.'] }
+];
+const tut = document.createElement('div'); tut.id = 'tut'; tut.hidden = true; tut.className = 'modal-back';
+document.body.appendChild(tut);
+let tutI = 0;
+function renderTut() {
+  const s = TUT[tutI], last = tutI === TUT.length - 1;
+  let seen = true; try { seen = localStorage.getItem('tw_tut_off') !== '1'; } catch (e) { }
+  tut.innerHTML = '<div class="modal tutm" role="dialog" aria-label="How to use Tweenslop">' +
+    '<div class="tutdots">' + TUT.map((_, i) => '<i class="' + (i === tutI ? 'on' : '') + '"></i>').join('') + '</div>' +
+    '<h2>' + s.t + '</h2>' +
+    '<div class="tuticons">' + s.icons.map(i => '<span>' + svgIcon(i) + '</span>').join('') + '</div>' +
+    '<ul class="tutp">' + s.p.map(x => '<li>' + x + '</li>').join('') + '</ul>' +
+    (last ? '<div class="row"><button class="btn primary" data-tut="img">' + svgIcon('upload') + 'Choose an image</button><button class="btn" data-tut="sample">Try the sample</button></div>' : '') +
+    '<div class="row tutnav"><label class="chk"><input type="checkbox" id="tutShow"' + (seen ? ' checked' : '') + '>Show on start</label><span class="grow"></span>' +
+    (tutI ? '<button class="btn" data-tut="back">Back</button>' : '<button class="btn ghost" data-tut="close">Skip</button>') +
+    (last ? '<button class="btn" data-tut="close">Close</button>' : '<button class="btn primary" data-tut="next">Next</button>') + '</div></div>';
+}
+function openTut(i) { tutI = i || 0; renderTut(); tut.hidden = false; const f = tut.querySelector('[data-tut="next"],[data-tut="close"]'); if (f) f.focus(); }
+function closeTut() { tut.hidden = true; }
+tut.addEventListener('click', e => {
+  if (e.target === tut) { closeTut(); return; }
+  const b = e.target.closest('[data-tut]'); if (!b) return;
+  const a = b.dataset.tut;
+  if (a === 'next') { tutI++; renderTut(); tut.querySelector('[data-tut="next"],[data-tut="close"]').focus(); }
+  else if (a === 'back') { tutI--; renderTut(); }
+  else if (a === 'close') closeTut();
+  else if (a === 'img') { closeTut(); $('#fileImg').click(); }
+  else if (a === 'sample') { closeTut(); loadSample(); }
+});
+tut.addEventListener('change', e => { if (e.target.id === 'tutShow') { try { localStorage.setItem('tw_tut_off', e.target.checked ? '0' : '1'); } catch (er) { } } });
+$('#btnHelp').onclick = () => openTut(0);
+
 /* ================= boot ================= */
 function boot() {
   loadColors(); resizeStage();
@@ -1850,11 +1934,12 @@ function boot() {
   new MutationObserver(() => { loadColors(); requestDraw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   window.addEventListener('resize', () => { if (S.step === 'animate') updatePlayhead(); });
   $('#rZoom').value = S.opts.tlzoom; updateUndoButtons();
-  loadSample();
+  S.step = 'cut'; S.tool = 'lasso'; refreshAll();
+  let off = false; try { off = localStorage.getItem('tw_tut_off') === '1'; } catch (e) { }
+  if (!off) openTut(0);
   IDB.get('last').then(s => { if (s) toast('A previous session is saved in this browser.', 'Restore it', () => { try { loadProject(JSON.parse(s)); } catch (e) { toast('Could not restore it.'); } }); }).catch(() => { });
 }
 boot();
 
 </script>
-
 </body></html>
