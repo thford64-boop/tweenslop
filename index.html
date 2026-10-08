@@ -1,4 +1,7 @@
-<!doctype html><html lang="en"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}[hidden]{display:none!important}body{margin:0;font:14px system-ui}</style></head><body><title>Tweenslop</title>
+<!doctype html><html lang="en"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}[hidden]{display:none!important}body{margin:0;font:14px system-ui}</style>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4358839277752865"
+     crossorigin="anonymous"></script>
+</head><body><title>Tweenslop</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -204,6 +207,7 @@ button:disabled{opacity:.4;cursor:default}
       <button role="tab" data-step="cut"><b>1</b> Cut</button>
       <button role="tab" data-step="rig"><b>2</b> Rig</button>
       <button role="tab" data-step="animate"><b>3</b> Animate</button>
+      <button role="tab" data-step="fx"><b>4</b> FX</button>
     </div>
     <div class="grow"></div>
     <button class="btn ib" id="btnUndo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg class="i"><use href="#i-undo"/></svg></button>
@@ -259,9 +263,12 @@ button:disabled{opacity:.4;cursor:default}
         <h3>Pose at playhead</h3>
         <div id="poseBox" style="display:flex;flex-direction:column;gap:8px"></div>
       </section>
+      <section class="sec" id="secFxAdd" data-for="fx"><h3 id="fxAddH">Add effect</h3><div class="col" id="fxAdd"></div></section>
+      <section class="sec" id="secFxList" data-for="fx"><h3>Effects</h3><div class="list" id="fxList"></div></section>
+      <section class="sec" id="secFxSet" data-for="fx"><h3>Settings</h3><div class="col" id="fxSet"></div></section>
     </aside>
 
-    <section id="timeline" data-for="animate" aria-label="Timeline">
+    <section id="timeline" data-for="animate fx" aria-label="Timeline">
       <div id="tlbar">
         <button class="btn ib" id="bFirst" title="Back to start" aria-label="Back to start"><svg class="i"><use href="#i-first"/></svg></button>
         <button class="btn ib primary" id="bPlay" title="Play / pause (Space)" aria-label="Play"><svg class="i"><use href="#i-play"/></svg></button>
@@ -273,7 +280,7 @@ button:disabled{opacity:.4;cursor:default}
         <span class="grow"></span>
         <button class="btn sm" id="bKey"><svg class="i" style="width:13px;height:13px"><use href="#i-key"/></svg>Key selected</button>
         <button class="btn sm danger" id="bDelKey">Delete key</button>
-        <div id="easeBox"><canvas id="easePrev" width="88" height="56"></canvas><select id="easeSel" aria-label="Easing for the selected key"></select></div>
+        <div id="easeBox"><canvas id="easePrev" width="88" height="56"></canvas><select id="easeSel" aria-label="Easing for the selected key"></select><button class="btn sm" id="easeEdit" title="Draw a custom easing graph with as many points as you like">Edit graph</button></div>
       </div>
       <div id="tlScroll"><div id="tlInner"><div id="playhead"></div></div></div>
     </section>
@@ -321,7 +328,7 @@ const EASE = {
   jelly: t => t >= 1 ? 1 : 1 - Math.exp(-6 * t) * Math.cos(14 * t),
   hold: t => t < 1 ? 0 : 1
 };
-const EASE_LABELS = [['linear', 'Linear'], ['inQuad', 'Ease in'], ['outQuad', 'Ease out'], ['inOutQuad', 'Ease in-out'], ['inCubic', 'Slow start'], ['outCubic', 'Slow stop'], ['inOutCubic', 'Smooth'], ['inOutSine', 'Sine'], ['inBack', 'Wind-up'], ['outBack', 'Overshoot'], ['inOutBack', 'Wind-up + overshoot'], ['elastic', 'Elastic'], ['bounce', 'Bounce'], ['jelly', 'Jelly'], ['hold', 'Hold (snap)']];
+const EASE_LABELS = [['linear', 'Linear'], ['inQuad', 'Ease in'], ['outQuad', 'Ease out'], ['inOutQuad', 'Ease in-out'], ['inCubic', 'Slow start'], ['outCubic', 'Slow stop'], ['inOutCubic', 'Smooth'], ['inOutSine', 'Sine'], ['inBack', 'Wind-up'], ['outBack', 'Overshoot'], ['inOutBack', 'Wind-up + overshoot'], ['elastic', 'Elastic'], ['bounce', 'Bounce'], ['jelly', 'Jelly'], ['hold', 'Hold (snap)'], ['custom', 'Custom graph…']];
 const easeFn = n => EASE[n] || EASE.linear;
 
 /* ================= state ================= */
@@ -381,7 +388,7 @@ function chanAt(keys, t) {
   if (t >= last.t) return last;
   let i = 0; while (i < keys.length - 1 && keys[i + 1].t <= t) i++;
   const a = keys[i], b = keys[i + 1];
-  const u = easeFn(a.e)((t - a.t) / (b.t - a.t));
+  const u = easeK(a)((t - a.t) / (b.t - a.t));
   return { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), r: lerp(a.r, b.r, u), sx: lerp(a.sx, b.sx, u), sy: lerp(a.sy, b.sy, u) };
 }
 const boneChan = (id, t) => chanAt(S.anim.bones[id] && S.anim.bones[id].keys, t);
@@ -420,7 +427,7 @@ function liqAt(pid, t) {
   if (t >= last.t) return last.f;
   let i = 0; while (i < keys.length - 1 && keys[i + 1].t <= t) i++;
   const a = keys[i], b = keys[i + 1];
-  const u = easeFn(a.e)((t - a.t) / (b.t - a.t));
+  const u = easeK(a)((t - a.t) / (b.t - a.t));
   let buf = _liqScratch.get(pid);
   if (!buf || buf.length !== a.f.length) { buf = new Float32Array(a.f.length); _liqScratch.set(pid, buf); }
   for (let k = 0; k < buf.length; k++) buf[k] = a.f[k] + (b.f[k] - a.f[k]) * u;
@@ -673,7 +680,7 @@ function drawPart(ctx, p, pose, f, px) {
     drawTri(ctx, img, VX[k10], VY[k10], VX[k11], VY[k11], VX[k01], VY[k01], u1, v0, u1, v1, u0, v1, pad);
   }
 }
-function drawScene(ctx, pose, t, rest, px) {
+function drawSceneOld(ctx, pose, t, rest, px) {
   for (const p of S.parts) {
     if (!p.visible) continue;
     if (p.dirty) rebuildPart(p);
@@ -767,7 +774,7 @@ function draw() {
     sctx.globalAlpha = 1;
   } else {
     if (!S.backdrop.transparent) { sctx.fillStyle = S.backdrop.color; sctx.fillRect(0, 0, S.w, S.h); }
-    const rest = S.step !== 'animate';
+    const rest = S.step !== 'animate' && S.step !== 'fx';
     var pose = computePose(S.t, rest);
     drawScene(sctx, pose, S.t, rest, dpr * v.s);
   }
@@ -1228,7 +1235,8 @@ function toast(msg, label, fn) {
 const TOOLS = {
   cut: [['lasso', 'Lasso', 'lasso', 'L'], ['poly', 'Polygon', 'poly', 'P'], ['brush', 'Brush', 'brush', 'B'], ['wand', 'Wand', 'wand', 'W'], ['eraser', 'Eraser', 'eraser', 'E'], ['hand', 'Pan', 'hand', 'H']],
   rig: [['bone', 'Bone', 'bone', 'B'], ['select', 'Select', 'select', 'V'], ['hand', 'Pan', 'hand', 'H']],
-  animate: [['move', 'Move', 'move', 'M'], ['rotate', 'Rotate', 'rotate', 'R'], ['size', 'Size', 'size', 'S'], ['expand', 'Expand', 'expand', 'X'], ['liquify', 'Liquify', 'liquify', 'L'], ['hand', 'Pan', 'hand', 'H']]
+  animate: [['move', 'Move', 'move', 'M'], ['rotate', 'Rotate', 'rotate', 'R'], ['size', 'Size', 'size', 'S'], ['expand', 'Expand', 'expand', 'X'], ['liquify', 'Liquify', 'liquify', 'L'], ['hand', 'Pan', 'hand', 'H']],
+  fx: [['fxkey', 'Key', 'wand', 'C'], ['fxmotion', 'Motion', 'move', 'M'], ['fxdistort', 'Distort', 'liquify', 'D'], ['fxcolor', 'Colour', 'brush', 'O'], ['hand', 'Pan', 'hand', 'H']]
 };
 const HINTS = {
   lasso: 'Drag a loop around the part. Hold the part inside the loop, release to cut it out.',
@@ -1243,6 +1251,10 @@ const HINTS = {
   size: 'Drag away from the pivot to grow, toward it to shrink.',
   expand: 'Drag to stretch along each axis. Hold Shift to keep proportions.',
   liquify: 'Drag on a part to push it around. Each key stores its own warp that tweens between keys.',
+  fxkey: 'Key menu: remove a colour (chroma) or dark/bright areas (luma).',
+  fxmotion: 'Motion menu: shake, wobble, pulse and float the scene or one part.',
+  fxdistort: 'Distort menu: wave, RGB split, pixelate, blur and glitch.',
+  fxcolor: 'Colour menu: hue shift, tint, adjust, fade and glow.',
   hand: 'Drag to pan. You can also hold Space, or use the mouse wheel to zoom.'
 };
 function setStep(step) {
@@ -1250,12 +1262,13 @@ function setStep(step) {
   S.step = step; CUT.pts = []; CUT.drawing = false; RIG.tmp = null;
   if (step === 'cut') S.tool = 'lasso';
   else if (step === 'rig') S.tool = S.bones.length ? 'select' : 'bone';
+  else if (step === 'fx') S.tool = 'fxmotion';
   else S.tool = 'move';
   if (step !== 'cut') ensureAllParts();
   if (step === 'animate' && !S.bones.length) toast('No bones yet. Add some in the Rig step first.', 'Go to Rig', () => setStep('rig'));
   refreshAll();
 }
-function setTool(t) { S.tool = t; CUT.pts = []; RIG.tmp = null; renderTools(); renderOptions(); refreshPose(); requestDraw(); }
+function setTool(t) { S.tool = t; CUT.pts = []; RIG.tmp = null; renderTools(); renderOptions(); refreshPose(); renderFx(); requestDraw(); }
 function renderTools() {
   $('#tools').innerHTML = TOOLS[S.step].map(([id, label, icon, key]) =>
     '<button class="tool" data-tool="' + id + '" aria-pressed="' + (S.tool === id) + '" title="' + label + ' (' + key + ')">' + svgIcon(icon) + '<span>' + label + '</span><kbd>' + key + '</kbd></button>').join('');
@@ -1426,6 +1439,7 @@ function applyStepVisibility() {
 function refreshAll() {
   applyStepVisibility(); renderTools(); renderOptions(); refreshParts(); refreshBones();
   if (S.step === 'animate') { refreshPose(); refreshTimeline(); }
+  else if (S.step === 'fx') { refreshTimeline(); renderFx(); }
   requestDraw();
 }
 
@@ -1439,7 +1453,7 @@ function lookupKey(sk) {
   if (!keys) return null; const i = findKey(keys, sk.t); return i < 0 ? null : keys[i];
 }
 function refreshTimeline() {
-  if (S.step !== 'animate') return;
+  if (S.step !== 'animate' && S.step !== 'fx') return;
   const z = tlZ(), lw = labW(), dur = S.anim.dur, inner = $('#tlInner');
   const major = 1, minor = z >= 240 ? 0.1 : z >= 100 ? 0.25 : 0.5;
   let ticks = '';
@@ -1499,16 +1513,16 @@ $('#tlScroll').addEventListener('pointerup', endTD); $('#tlScroll').addEventList
 const easeSel = $('#easeSel');
 easeSel.innerHTML = EASE_LABELS.map(([v, l]) => '<option value="' + v + '">' + l + '</option>').join('');
 function refreshEase() {
-  const k = lookupKey(S.sel.key); easeSel.disabled = !k; $('#bDelKey').disabled = !k;
+  const k = lookupKey(S.sel.key); easeSel.disabled = !k; $('#easeEdit').disabled = !k; $('#bDelKey').disabled = !k;
   if (k) easeSel.value = k.e;
   const cv = $('#easePrev'), c = cv.getContext('2d'), w = cv.width, h = cv.height; c.clearRect(0, 0, w, h);
   c.strokeStyle = COL['--line'] || '#888'; c.lineWidth = 1; c.strokeRect(6.5, 8.5, w - 13, h - 17);
   if (!k) return;
-  const f = easeFn(k.e); c.beginPath();
+  const f = easeK(k); c.beginPath();
   for (let i = 0; i <= 40; i++) { const u = i / 40, v = f(u), x = 6 + u * (w - 12), y = (h - 9) - clamp(v, -0.3, 1.3) * (h - 18); i ? c.lineTo(x, y) : c.moveTo(x, y); }
   c.strokeStyle = COL['--accent'] || '#d6307f'; c.lineWidth = 2; c.stroke();
 }
-easeSel.onchange = () => { const k = lookupKey(S.sel.key); if (!k) return; k.e = easeSel.value; commit(); refreshEase(); refreshTimeline(); };
+easeSel.onchange = () => { const k = lookupKey(S.sel.key); if (!k) return; k.e = easeSel.value; commit(); refreshEase(); refreshTimeline(); if (k.e === 'custom') easeEdit(); };
 $('#bKey').onclick = () => {
   const b = selBone(), p = selPart();
   if (S.tool === 'liquify' && p && p.tex) { liqEnsureKey(p.id, S.t); S.sel.key = { kind: 'liq', id: p.id, t: snapT(S.t) }; }
@@ -1565,7 +1579,7 @@ stage.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   if (S.playing && S.step === 'animate') togglePlay(false);
   const [x, y] = toImg(e.clientX, e.clientY);
-  if (S.step === 'cut') cutPointerDown(e, x, y); else if (S.step === 'rig') rigPointerDown(e, x, y); else animPointerDown(e, x, y);
+  if (S.step === 'cut') cutPointerDown(e, x, y); else if (S.step === 'rig') rigPointerDown(e, x, y); else if (S.step === 'fx') fxPointerDown(e, x, y); else animPointerDown(e, x, y);
   requestDraw();
 });
 stage.addEventListener('pointermove', e => {
@@ -1573,12 +1587,12 @@ stage.addEventListener('pointermove', e => {
   if (PAN) { S.view.x = PAN.vx + e.clientX - PAN.x; S.view.y = PAN.vy + e.clientY - PAN.y; requestDraw(); return; }
   if (!S.w) return;
   const [x, y] = toImg(e.clientX, e.clientY);
-  if (S.step === 'cut') cutPointerMove(e, x, y); else if (S.step === 'rig') rigPointerMove(e, x, y); else animPointerMove(e, x, y);
+  if (S.step === 'cut') cutPointerMove(e, x, y); else if (S.step === 'rig') rigPointerMove(e, x, y); else if (S.step === 'fx') fxPointerMove(e, x, y); else animPointerMove(e, x, y);
   requestDraw();
 });
 function stageUp() {
   if (PAN) { PAN = null; S.userView = true; renderTools(); return; }
-  if (S.step === 'cut') cutPointerUp(); else if (S.step === 'rig') rigPointerUp(); else animPointerUp();
+  if (S.step === 'cut') cutPointerUp(); else if (S.step === 'rig') rigPointerUp(); else if (S.step === 'fx') fxPointerUp(); else animPointerUp();
 }
 stage.addEventListener('pointerup', stageUp); stage.addEventListener('pointercancel', stageUp);
 stage.addEventListener('pointerleave', () => { S.cursor.on = false; requestDraw(); });
@@ -1593,14 +1607,15 @@ document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' && e.target.type !== 'range' && e.target.type !== 'checkbox' || tag === 'select' || tag === 'textarea') return;
   if (!tut.hidden) { if (e.key === 'Escape') closeTut(); else if (e.key === 'ArrowRight' && tutI < TUT.length - 1) { tutI++; renderTut(); } else if (e.key === 'ArrowLeft' && tutI > 0) { tutI--; renderTut(); } return; }
+  if (!GE.el.hidden && e.key === 'Escape') { closeGraph(); return; }
   if (!$('#modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
   const k = e.key, ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && k.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (ctrl && k.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if (ctrl) return;
   if (cutKey(e)) { e.preventDefault(); return; }
-  if (k === ' ') { e.preventDefault(); SPACE = true; if (S.step === 'animate' && !e.repeat) togglePlay(); return; }
-  if (k === '1') return setStep('cut'); if (k === '2') return setStep('rig'); if (k === '3') return setStep('animate');
+  if (k === ' ') { e.preventDefault(); SPACE = true; if ((S.step === 'animate' || S.step === 'fx') && !e.repeat) togglePlay(); return; }
+  if (k === '1') return setStep('cut'); if (k === '2') return setStep('rig'); if (k === '3') return setStep('animate'); if (k === '4') return setStep('fx');
   if (k.toLowerCase() === 'f') { S.userView = false; return fitView(); }
   const hit = TOOLS[S.step].find(t => t[3].toLowerCase() === k.toLowerCase()); if (hit) return setTool(hit[0]);
   if (S.step === 'animate') {
@@ -1618,7 +1633,7 @@ window.addEventListener('blur', () => { SPACE = false; });
 function setupDoc(canvas) {
   S.w = canvas.width; S.h = canvas.height; S.img = canvas; S.imgData = null;
   S.parts = []; S.partMap = new Map(); S.bones = []; rebuildSkeleton(); _hueN = 0;
-  S.anim = { fps: 24, dur: 2, loop: true, bones: {}, liq: {} }; S.t = 0; S.playing = false;
+  S.anim = { fps: 24, dur: 2, loop: true, bones: {}, liq: {}, fx: [] }; S.t = 0; S.playing = false;
   S.sel = { part: null, bone: null, key: null }; S._fitted = false; S.userView = false; poseFor = null;
   $('#bPlay').innerHTML = svgIcon('play');
 }
@@ -1717,10 +1732,10 @@ $('#btnSample2').onclick = loadSample;
 
 /* project save / load */
 function serializeProject() {
-  const liq = {}; for (const id in S.anim.liq) liq[id] = { keys: S.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Array.from(k.f, v => Math.round(v * 100) / 100) })) };
+  const liq = {}; for (const id in S.anim.liq) liq[id] = { keys: S.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Array.from(k.f, v => Math.round(v * 100) / 100), c: k.c, cm: k.cm })) };
   return JSON.stringify({ app: 'tweenslop', v: 1, w: S.w, h: S.h, img: S.img.toDataURL('image/png'),
     parts: S.parts.map(p => ({ id: p.id, name: p.name, visible: p.visible, bone: p.bone, soft: p.soft, hue: p.hue, mask: p.mask.toDataURL('image/png') })),
-    bones: S.bones, anim: { fps: S.anim.fps, dur: S.anim.dur, loop: S.anim.loop, bones: S.anim.bones, liq } });
+    bones: S.bones, anim: { fps: S.anim.fps, dur: S.anim.dur, loop: S.anim.loop, bones: S.anim.bones, liq, fx: S.anim.fx || [] } });
 }
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
 async function loadProject(o) {
@@ -1734,8 +1749,8 @@ async function loadProject(o) {
   }
   S.bones = o.bones; for (const b of S.bones) mx = Math.max(mx, parseInt(b.id.slice(1)) || 0);
   _uid = Math.max(_uid, mx + 1); rebuildSkeleton();
-  S.anim = { fps: o.anim.fps, dur: o.anim.dur, loop: o.anim.loop, bones: o.anim.bones, liq: {} };
-  for (const id in o.anim.liq) S.anim.liq[id] = { keys: o.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Float32Array.from(k.f) })) };
+  S.anim = { fps: o.anim.fps, dur: o.anim.dur, loop: o.anim.loop, bones: o.anim.bones, liq: {}, fx: o.anim.fx || [] };
+  for (const id in o.anim.liq) S.anim.liq[id] = { keys: o.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Float32Array.from(k.f), c: k.c, cm: k.cm })) };
   ensureAllParts(); finishDoc(S.bones.length ? 'animate' : 'cut'); toast('Project opened.');
 }
 const IDB = {
@@ -1888,13 +1903,189 @@ modal.addEventListener('click', async e => {
 });
 
 
+/* ================= custom graphs ================= */
+function curveEval(pts,mode,x){const n=pts.length;if(!n)return x;if(x<=pts[0][0])return pts[0][1];if(x>=pts[n-1][0])return pts[n-1][1];
+  let i=0;while(i<n-2&&pts[i+1][0]<=x)i++;const x0=pts[i][0],y0=pts[i][1],x1=pts[i+1][0],y1=pts[i+1][1],h=x1-x0||1e-9,u=(x-x0)/h;
+  if(mode==='step')return y0;if(mode==='linear')return y0+(y1-y0)*u;
+  const sl=j=>(pts[j+1][1]-pts[j][1])/((pts[j+1][0]-pts[j][0])||1e-9),tn=j=>{if(j===0)return sl(0);if(j===n-1)return sl(n-2);const a=sl(j-1),b=sl(j);return a*b<=0?0:2*a*b/(a+b);};
+  const m0=tn(i)*h,m1=tn(i+1)*h,u2=u*u,u3=u2*u;return(2*u3-3*u2+1)*y0+(u3-2*u2+u)*m0+(-2*u3+3*u2)*y1+(u3-u2)*m1;}
+const easeK=k=>k.e==='custom'&&k.c?(u=>curveEval(k.c,k.cm||'smooth',u)):easeFn(k.e);
+const EASEP=[['Linear',[[0,0],[1,1]],'linear'],['Ease in-out',[[0,0],[.25,.06],[.75,.94],[1,1]]],['Overshoot',[[0,0],[.5,1.25],[1,1]]],['Wobble settle',[[0,0],[.25,1.2],[.5,.85],[.75,1.08],[1,1]]],['Bounce',[[0,0],[.3,1],[.45,.8],[.6,1],[.7,.94],[.8,1],[1,1]]],['Snap',[[0,0],[.45,0],[.55,1],[1,1]]],['Anticipate',[[0,0],[.2,-.2],[.7,1.1],[1,1]]]];
+const FXP=[['Flat',[[0,1],[1,1]]],['Fade in',[[0,0],[1,1]]],['Fade out',[[0,1],[1,0]]],['Pulse',[[0,0],[.5,1],[1,0]]],['Burst',[[0,1],[.2,0],[1,0]]],['Blips',[[0,0],[.1,1],[.2,0],[.5,0],[.6,1],[.7,0],[1,0]],'linear'],['Ramp up/down',[[0,0],[.4,1],[.6,1],[1,0]],'linear']];
+const GE={el:document.createElement('div'),o:null,drag:-1};
+GE.el.className='modal-back';GE.el.hidden=true;GE.el.style.cssText='z-index:70;background:transparent;pointer-events:none;place-items:center end';
+GE.el.innerHTML='<div class="modal" role="dialog" aria-label="Graph editor" style="width:min(440px,100%);pointer-events:auto"><h2 style="font-size:17px" id="geT"></h2><canvas id="geC" width="420" height="280" style="width:100%;touch-action:none;background:var(--bg);border:1px solid var(--line);border-radius:8px;cursor:crosshair"></canvas><div id="geP" style="display:flex;flex-wrap:wrap;gap:6px"></div><div style="display:flex;gap:8px;align-items:center"><span class="seg" id="geM"><button data-gm="smooth">Smooth</button><button data-gm="linear">Straight</button><button data-gm="step">Steps</button></span><span class="grow"></span><button class="btn primary" id="geD">Done</button></div><div class="empty-note">Click empty space to add a point, drag to move, double-click a point to delete it. You can still play and scrub while this is open.</div></div>';
+document.body.appendChild(GE.el);
+const gGeo=()=>{const c=$('#geC'),o=GE.o,P=24;return{c,P,W:c.width,H:c.height,X:x=>P+x*(c.width-2*P),Y:y=>c.height-P-(y-o.yMin)/(o.yMax-o.yMin)*(c.height-2*P)};};
+function geDraw(){const o=GE.o,g=gGeo(),c=g.c.getContext('2d'),W=g.W,H=g.H,P=g.P;c.clearRect(0,0,W,H);c.font='11px monospace';c.fillStyle=COL['--dim'];c.lineWidth=1;
+  for(let i=0;i<=4;i++){const x=g.X(i/4);c.strokeStyle=COL['--line'];c.beginPath();c.moveTo(x,P);c.lineTo(x,H-P);c.stroke();}
+  for(const v of[0,1]){const y=g.Y(v);c.strokeStyle=COL['--dim'];c.beginPath();c.moveTo(P,y);c.lineTo(W-P,y);c.stroke();c.fillText(v,4,y+4);}
+  c.beginPath();for(let i=0;i<=240;i++){const u=i/240,x=g.X(u),y=g.Y(curveEval(o.pts,o.mode,u));i?c.lineTo(x,y):c.moveTo(x,y);}
+  c.strokeStyle=COL['--accent'];c.lineWidth=2.5;c.stroke();
+  o.pts.forEach((q,i)=>{c.beginPath();c.arc(g.X(q[0]),g.Y(q[1]),i===GE.drag?8:6,0,7);c.fillStyle=COL['--key'];c.fill();c.lineWidth=2;c.strokeStyle=COL['--bg'];c.stroke();});
+  GE.el.querySelectorAll('[data-gm]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.gm===o.mode));}
+const gPt=e=>{const g=gGeo(),r=g.c.getBoundingClientRect(),o=GE.o,px=(e.clientX-r.left)*g.W/r.width,py=(e.clientY-r.top)*g.H/r.height;
+  return{px,py,g,k:g.W/r.width,x:clamp((px-g.P)/(g.W-2*g.P),0,1),y:clamp(o.yMin+(g.H-g.P-py)/(g.H-2*g.P)*(o.yMax-o.yMin),o.yMin,o.yMax)};};
+const gSnap=v=>Math.abs(v)<.03?0:Math.abs(v-1)<.03?1:v;
+function geNear(q){let b=-1,bd=14*q.k;GE.o.pts.forEach((p,i)=>{const d=Math.hypot(q.g.X(p[0])-q.px,q.g.Y(p[1])-q.py);if(d<bd){bd=d;b=i;}});return b;}
+function geChange(){geDraw();GE.o.onChange&&GE.o.onChange(GE.o.pts,GE.o.mode);}
+function openGraph(o){GE.o=o;GE.drag=-1;$('#geT').textContent=o.title;
+  $('#geP').innerHTML=o.presets.map((p,i)=>'<button class="btn sm" data-gp="'+i+'">'+p[0]+'</button>').join('');GE.el.hidden=false;geDraw();}
+function closeGraph(){if(GE.el.hidden)return;GE.el.hidden=true;const o=GE.o;GE.o=null;o&&o.onDone&&o.onDone();}
+$('#geD').onclick=closeGraph;
+GE.el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!GE.o)return;const o=GE.o;
+  if(b.dataset.gp!==undefined){const p=o.presets[+b.dataset.gp];o.pts.splice(0,o.pts.length,...p[1].map(q=>q.slice()));o.mode=p[2]||'smooth';geChange();}
+  else if(b.dataset.gm){o.mode=b.dataset.gm;geChange();}});
+const geC=$('#geC');
+geC.addEventListener('pointerdown',e=>{const o=GE.o,q=gPt(e);let i=geNear(q);
+  if(i<0){let j=0;while(j<o.pts.length&&o.pts[j][0]<q.x)j++;if(j===0||j===o.pts.length)return;o.pts.splice(j,0,[q.x,gSnap(q.y)]);i=j;}
+  GE.drag=i;geC.setPointerCapture(e.pointerId);geChange();});
+geC.addEventListener('pointermove',e=>{if(GE.drag<0)return;const o=GE.o,q=gPt(e),i=GE.drag,n=o.pts.length,p=o.pts[i];
+  if(i>0&&i<n-1)p[0]=clamp(q.x,o.pts[i-1][0]+.004,o.pts[i+1][0]-.004);
+  if(!(o.lockEnds&&(i===0||i===n-1)))p[1]=gSnap(q.y);geChange();});
+geC.addEventListener('pointerup',()=>{GE.drag=-1;geDraw();});
+const geDel=e=>{e.preventDefault();const o=GE.o,i=geNear(gPt(e));if(i>0&&i<o.pts.length-1){o.pts.splice(i,1);geChange();}};
+geC.addEventListener('dblclick',geDel);geC.addEventListener('contextmenu',geDel);
+
+function easeEdit(){const k=lookupKey(S.sel.key);if(!k){toast('Select a keyframe on the timeline first.');return;}
+  if(!k.c){const f=easeFn(k.e);k.c=[0,.2,.4,.6,.8,1].map(u=>[u,f(u)]);k.cm='smooth';}k.e='custom';
+  openGraph({title:'Easing curve: how this key moves to the next',pts:k.c,mode:k.cm,yMin:-.5,yMax:1.5,lockEnds:true,presets:EASEP,
+    onChange:(p,m)=>{k.c=p;k.cm=m;refreshEase();requestDraw();},onDone:()=>{commit();refreshTimeline();}});}
+$('#easeEdit').onclick=easeEdit;
+
+/* ================= effects ================= */
+const hexRGB=h=>{const n=parseInt(h.slice(1),16);return[n>>16&255,n>>8&255,n&255];};
+const hs=n=>{n=Math.sin(n*127.1+311.7)*43758.5453;return n-Math.floor(n);};
+const nz=(x,s)=>{const i=Math.floor(x),f=x-i,u=f*f*(3-2*f);return lerp(hs(i+s*17.3),hs(i+1+s*17.3),u)*2-1;};
+const FXCATS={key:'Key',motion:'Motion',distort:'Distort',color:'Colour'};
+const FXDEF={
+ chroma:{cat:'key',name:'Chroma key',p:[['color','Key colour','color','#00ff00'],['tol','Tolerance',0,100,1,35,'%'],['soft','Softness',0,100,1,20,'%'],['spill','Despill',0,100,1,50,'%']]},
+ luma:{cat:'key',name:'Luma key',p:[['lv','Threshold',0,100,1,20,'%'],['soft','Softness',0,60,1,10,'%'],['inv','Key out bright (1)',0,1,1,0,'']]},
+ shake:{cat:'motion',name:'Shake',p:[['amt','Distance',0,80,1,10,'px'],['rot','Twist',0,30,.5,3,'°'],['sp','Speed',1,40,1,14,'Hz']]},
+ wobble:{cat:'motion',name:'Wobble',p:[['rot','Sway',0,45,.5,8,'°'],['sq','Squash',0,40,1,10,'%'],['sp','Speed',.2,10,.1,2,'Hz']]},
+ pulse:{cat:'motion',name:'Pulse',p:[['amt','Size',0,60,1,12,'%'],['sp','Speed',.2,10,.1,2,'Hz']]},
+ float:{cat:'motion',name:'Float',p:[['x','Sideways',0,80,1,6,'px'],['y','Up/down',0,80,1,14,'px'],['sp','Speed',.1,5,.1,.7,'Hz']]},
+ wave:{cat:'distort',name:'Wave',p:[['amp','Height',0,60,1,6,'px'],['len','Length',10,300,1,70,'px'],['sp','Speed',0,5,.1,1.5,''],['dir','Vertical (1)',0,1,1,0,'']]},
+ rgb:{cat:'distort',name:'RGB split',p:[['off','Split',0,40,1,6,'px'],['ang','Angle',0,360,1,0,'°']]},
+ pixel:{cat:'distort',name:'Pixelate',p:[['size','Block size',2,60,1,12,'px']]},
+ blur:{cat:'distort',name:'Blur',p:[['r','Radius',0,40,1,6,'px']]},
+ glitch:{cat:'distort',name:'Glitch',p:[['n','Slices',1,20,1,8,''],['shift','Shift',0,120,1,30,'px'],['sp','Speed',1,30,1,10,'Hz']]},
+ hue:{cat:'color',name:'Hue shift',p:[['deg','Shift',-180,180,1,120,'°'],['spin','Spin',-720,720,10,0,'°/s']]},
+ tint:{cat:'color',name:'Tint / flash',p:[['color','Colour','color','#ff3b6b'],['amt','Amount',0,100,1,60,'%']]},
+ adjust:{cat:'color',name:'Adjust',p:[['b','Brightness',-100,100,1,0,''],['c','Contrast',-100,100,1,0,''],['s','Saturation',-100,100,1,0,'']]},
+ fade:{cat:'color',name:'Fade out',p:[['amt','Amount',0,100,1,100,'%']]},
+ glow:{cat:'color',name:'Glow',p:[['r','Radius',1,60,1,14,'px'],['str','Strength',0,100,1,80,'%']]}};
+const PIX=new Set(['chroma','luma','wave','rgb','pixel','blur','glitch','hue','tint','adjust','fade','glow']);
+const fxList=()=>S.anim.fx||(S.anim.fx=[]);
+function fxMo(e,t){const d=Math.max(S.anim.dur,.01),n=e.g.n||1;let u=t/d*n;u=u>=n-1e-6?1:u%1;const m=curveEval(e.g.pts,e.g.m,u);return Math.abs(m)<.002?0:m;}
+function fxMat(E,t,pv){let M=MI;for(const e of E){const m=fxMo(e,t);if(!m)continue;const p=e.p,T=e.type,w=6.2832*(p.sp||0)*t;let dx=0,dy=0,r=0,sx=1,sy=1;
+  if(T==='shake'){dx=nz(t*p.sp,1)*p.amt*m;dy=nz(t*p.sp,2)*p.amt*m;r=nz(t*p.sp,3)*p.rot*m;}
+  else if(T==='wobble'){r=Math.sin(w)*p.rot*m;const q=Math.cos(w)*p.sq/100*m;sx=1+q;sy=1-q;}
+  else if(T==='pulse'){sx=sy=1+Math.sin(w)*p.amt/100*m;}
+  else if(T==='float'){dx=Math.sin(w)*p.x*m;dy=Math.sin(w*1.3+1)*p.y*m;}else continue;
+  M=mmul(M,mmul(mmul(mmul(mT(pv[0]+dx,pv[1]+dy),mR(r*Math.PI/180)),mS(sx,sy)),mT(-pv[0],-pv[1])));}return M;}
+let FXD=0;const FXC={};
+function fxCv(k,W,H){let c=FXC[k];if(!c||c.width!==W||c.height!==H){c=FXC[k]=mkCanvas(W,H);}return c;}
+function fxCopy(c,W,H,k){const t=fxCv(k,W,H),x=t.getContext('2d');x.setTransform(1,0,0,1,0,0);x.globalCompositeOperation='source-over';x.globalAlpha=1;x.clearRect(0,0,W,H);x.drawImage(c.canvas,0,0);return t;}
+function fxBlur(c,r,s,k){if(r<.5)return;const W=s.W,H=s.H,tm=fxCopy(c,W,H,k);c.clearRect(0,0,W,H);
+  if(typeof c.filter==='string'){c.filter='blur('+r+'px)';c.drawImage(tm,0,0);c.filter='none';}
+  else{const f=Math.max(2,Math.round(r)),w=Math.max(1,Math.ceil(W/f)),h=Math.max(1,Math.ceil(H/f)),sm=fxCv(k+'s',w,h),x=sm.getContext('2d');x.clearRect(0,0,w,h);x.drawImage(tm,0,0,w,h);c.drawImage(sm,0,0,w,h,0,0,W,H);}}
+const FXOP={
+ chroma(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,k=hexRGB(p.color),tol=p.tol*4.4,sf=p.soft*4.4+1,mix=clamp(m,0,1),sp=p.spill/100*mix;
+  const j=k[0]>=k[1]&&k[0]>=k[2]?0:k[1]>=k[2]?1:2,o1=(j+1)%3,o2=(j+2)%3;
+  for(let i=0;i<a.length;i+=4){if(!a[i+3])continue;const dist=Math.hypot(a[i]-k[0],a[i+1]-k[1],a[i+2]-k[2]),kk=clamp((dist-tol)/sf,0,1);a[i+3]*=1-mix+mix*kk;
+   if(sp){const w=clamp(1-dist/(tol+sf*3+60),0,1)*sp,av=(a[i+o1]+a[i+o2])/2;if(a[i+j]>av)a[i+j]=lerp(a[i+j],av,w);}}c.putImageData(d,0,0);},
+ luma(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,mix=clamp(m,0,1),lv=p.lv*2.55,sf=p.soft*2.55+1;
+  for(let i=0;i<a.length;i+=4){let k=clamp((.299*a[i]+.587*a[i+1]+.114*a[i+2]-lv)/sf,0,1);if(p.inv)k=1-k;a[i+3]*=1-mix+mix*k;}c.putImageData(d,0,0);},
+ hue(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,g=(p.deg+p.spin*s.t)*m*Math.PI/180,cs=Math.cos(g),sn=Math.sin(g);
+  const M=[.213+cs*.787-sn*.213,.715-cs*.715-sn*.715,.072-cs*.072+sn*.928,.213-cs*.213+sn*.143,.715+cs*.285+sn*.140,.072-cs*.072-sn*.283,.213-cs*.213-sn*.787,.715-cs*.715+sn*.715,.072+cs*.928+sn*.072];
+  for(let i=0;i<a.length;i+=4){const r=a[i],g2=a[i+1],b=a[i+2];a[i]=M[0]*r+M[1]*g2+M[2]*b;a[i+1]=M[3]*r+M[4]*g2+M[5]*b;a[i+2]=M[6]*r+M[7]*g2+M[8]*b;}c.putImageData(d,0,0);},
+ tint(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,k=hexRGB(p.color),q=clamp(p.amt/100*m,0,1);
+  for(let i=0;i<a.length;i+=4){a[i]+=(k[0]-a[i])*q;a[i+1]+=(k[1]-a[i+1])*q;a[i+2]+=(k[2]-a[i+2])*q;}c.putImageData(d,0,0);},
+ adjust(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,b=p.b*2.55*m,ct=1+p.c/100*m,sa=1+p.s/100*m;
+  for(let i=0;i<a.length;i+=4){const l=.299*a[i]+.587*a[i+1]+.114*a[i+2];for(let j=0;j<3;j++)a[i+j]=((l+(a[i+j]-l)*sa)-128)*ct+128+b;}c.putImageData(d,0,0);},
+ wave(c,p,m,s){const W=s.W,H=s.H,tm=fxCopy(c,W,H,'t'+s.dk),amp=p.amp*s.sc*m,len=p.len*s.sc,ph=s.t*p.sp*6.2832;c.clearRect(0,0,W,H);
+  if(p.dir)for(let x=0;x<W;x+=2)c.drawImage(tm,x,0,2,H,x,Math.sin(x/len*6.2832+ph)*amp,2,H);
+  else for(let y=0;y<H;y+=2)c.drawImage(tm,0,y,W,2,Math.sin(y/len*6.2832+ph)*amp,y,W,2);},
+ rgb(c,p,m,s){const W=s.W,H=s.H,d=c.getImageData(0,0,W,H),a=d.data,src=new Uint8ClampedArray(a),an=p.ang*Math.PI/180,ox=Math.round(Math.cos(an)*p.off*s.sc*m),oy=Math.round(Math.sin(an)*p.off*s.sc*m);if(!ox&&!oy)return;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4,xr=x-ox,yr=y-oy,xb=x+ox,yb=y+oy,ir=xr>=0&&xr<W&&yr>=0&&yr<H?(yr*W+xr)*4:-1,ib=xb>=0&&xb<W&&yb>=0&&yb<H?(yb*W+xb)*4:-1;
+   a[i]=ir<0?0:src[ir];a[i+2]=ib<0?0:src[ib];a[i+3]=Math.max(src[i+3],ir<0?0:src[ir+3],ib<0?0:src[ib+3]);}c.putImageData(d,0,0);},
+ pixel(c,p,m,s){const q=Math.round(p.size*s.sc*Math.min(1,m));if(q<2)return;const w=Math.max(1,Math.ceil(s.W/q)),h=Math.max(1,Math.ceil(s.H/q)),tm=fxCv('p'+s.dk,w,h),x=tm.getContext('2d');
+  x.clearRect(0,0,w,h);x.drawImage(c.canvas,0,0,w,h);c.clearRect(0,0,s.W,s.H);c.imageSmoothingEnabled=false;c.drawImage(tm,0,0,w,h,0,0,w*q,h*q);c.imageSmoothingEnabled=true;},
+ blur(c,p,m,s){fxBlur(c,p.r*s.sc*m,s,'b'+s.dk);},
+ glow(c,p,m,s){const W=s.W,H=s.H,o=fxCopy(c,W,H,'g'+s.dk);fxBlur(c,p.r*s.sc,s,'h'+s.dk);const bl=fxCopy(c,W,H,'i'+s.dk);
+  c.clearRect(0,0,W,H);c.globalCompositeOperation='lighter';c.globalAlpha=clamp(p.str/100*m,0,1);c.drawImage(bl,0,0);c.globalAlpha=1;c.globalCompositeOperation='source-over';c.drawImage(o,0,0);},
+ glitch(c,p,m,s){const W=s.W,H=s.H,tm=fxCopy(c,W,H,'l'+s.dk),fr=Math.floor(s.t*p.sp);
+  for(let i=0;i<p.n;i++){if(hs(fr*7.7+i*3.1)<.5)continue;const y=Math.floor(hs(fr+i*5.3)*H),h=Math.ceil(hs(fr*1.3+i)*H*.12)+2,dx=(hs(fr*2.1+i*9.7)-.5)*2*p.shift*s.sc*m;c.clearRect(0,y,W,h);c.drawImage(tm,0,y,W,h,dx,y,W,h);}}
+};
+function fxRun(ctx,drawFn,pix,t,px){const dk=FXD++;try{
+  const sc=clamp(px,.25,2),W=Math.max(1,Math.round(S.w*sc)),H=Math.max(1,Math.round(S.h*sc)),cv=fxCv('m'+dk,W,H),c=cv.getContext('2d',{willReadFrequently:true});
+  c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,W,H);c.setTransform(sc,0,0,sc,0,0);drawFn(c);c.setTransform(1,0,0,1,0,0);
+  const st={al:1,dk,sc,W,H,t};
+  for(const o of pix){if(o.e.type==='fade')st.al*=1-clamp(o.m*o.e.p.amt/100,0,1);else FXOP[o.e.type](c,o.e.p,o.m,st);}
+  ctx.save();ctx.globalAlpha*=st.al;ctx.drawImage(cv,0,0,W,H,0,0,S.w,S.h);ctx.restore();}finally{FXD--;}}
+const fxPix=(E,t)=>E.filter(e=>PIX.has(e.type)).map(e=>({e,m:fxMo(e,t)})).filter(o=>o.m);
+function drawParts(ctx,pose,t,rest,px,E){
+  for(const p of S.parts){if(!p.visible)continue;if(p.dirty)rebuildPart(p);if(!p.tex)continue;
+    const f=rest?null:liqAt(p.id,t),mine=E.filter(e=>e.target===p.id);
+    if(!mine.length){drawPart(ctx,p,pose,f,px);continue;}
+    if(p._cenT!==p.tex){p._cen=partCentroid(p)||[S.w/2,S.h/2];p._cenT=p.tex;}
+    const b=p.bone?getBone(p.bone):null,pv=b?mapp(pose.M[b.id],p._cen[0],p._cen[1]):p._cen,M=fxMat(mine,t,pv),pix=fxPix(mine,t);
+    const one=c=>{c.save();c.transform(M[0],M[1],M[2],M[3],M[4],M[5]);drawPart(c,p,pose,f,px);c.restore();};
+    pix.length?fxRun(ctx,one,pix,t,px):one(ctx);}}
+function drawScene(ctx,pose,t,rest,px){
+  const E=rest?[]:fxList().filter(e=>e.on&&FXDEF[e.type]);
+  if(!E.length){drawParts(ctx,pose,t,rest,px,[]);return;}
+  const A=E.filter(e=>e.target==='all'),pix=fxPix(A,t),G=fxMat(A,t,[S.w/2,S.h/2]);
+  const body=c=>{c.save();c.transform(G[0],G[1],G[2],G[3],G[4],G[5]);drawParts(c,pose,t,rest,px,E);c.restore();};
+  pix.length?fxRun(ctx,body,pix,t,px):body(ctx);}
+
+/* ---- FX panel (submenus live on the left rail, one per category) ---- */
+const toolCat=()=>({fxkey:'key',fxmotion:'motion',fxdistort:'distort',fxcolor:'color'})[S.tool]||null;
+function addFx(type){const d=FXDEF[type],p={};for(const q of d.p)p[q[0]]=q[2]==='color'?q[3]:q[5];
+  const e={id:uid('fx'),type,on:true,target:'all',p,g:{pts:[[0,1],[1,1]],m:'smooth',n:1}};fxList().push(e);S.sel.fx=e.id;commit();renderFx();requestDraw();}
+function fxPrev(){const cv=$('#fxGp'),e=fxList().find(x=>x.id===S.sel.fx);if(!cv||!e)return;const c=cv.getContext('2d'),W=cv.width,H=cv.height,n=e.g.n||1;
+  c.clearRect(0,0,W,H);c.strokeStyle=COL['--line'];c.lineWidth=1;c.strokeRect(.5,.5,W-1,H-1);const y=v=>H-6-clamp(v,0,2)/2*(H-12);
+  c.beginPath();for(let i=0;i<=200;i++){const u=i/200,v=curveEval(e.g.pts,e.g.m,u>=1?1:(u*n)%1);i?c.lineTo(u*(W-2)+1,y(v)):c.moveTo(1,y(v));}c.strokeStyle=COL['--accent'];c.lineWidth=2;c.stroke();}
+function renderFx(){if(S.step!=='fx')return;const cat=toolCat(),L=fxList().filter(e=>!cat||FXDEF[e.type].cat===cat);
+  $('#fxAddH').textContent=cat?'Add · '+FXCATS[cat]:'Effect menus';
+  $('#fxAdd').innerHTML=cat?Object.keys(FXDEF).filter(k=>FXDEF[k].cat===cat).map(k=>'<button class="btn" data-fxadd="'+k+'">'+svgIcon('plus')+FXDEF[k].name+'</button>').join(''):'<div class="empty-note">Pick a menu on the left: Key, Motion, Distort or Colour.</div>';
+  $('#fxList').innerHTML=L.length?L.map(e=>'<div style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-fxon="'+e.id+'"'+(e.on?' checked':'')+' aria-label="Enabled"><button class="btn sm ghost grow" data-fxsel="'+e.id+'" style="justify-content:flex-start;'+(e.id===S.sel.fx?'color:var(--accent);font-weight:700':'')+'">'+FXDEF[e.type].name+' <small style="color:var(--dim)">'+(e.target==='all'?'scene':esc((getPart(e.target)||{name:'?'}).name))+'</small></button><button class="btn sm ghost ib danger" data-fxdel="'+e.id+'" aria-label="Delete effect">'+svgIcon('trash')+'</button></div>').join(''):'<div class="empty-note">Nothing here yet.</div>';
+  const e=L.find(x=>x.id===S.sel.fx);if(!e){$('#fxSet').innerHTML='<div class="empty-note">Add or pick an effect to edit it.</div>';return;}
+  const d=FXDEF[e.type],F='style="grid-template-columns:96px 1fr"';
+  $('#fxSet').innerHTML='<b>'+d.name+'</b><div class="field" '+F+'><label>Applies to</label><select data-fxtarget><option value="all"'+(e.target==='all'?' selected':'')+'>Whole scene</option>'+S.parts.map(p=>'<option value="'+p.id+'"'+(e.target===p.id?' selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select></div>'+
+   d.p.map(q=>q[2]==='color'?'<div class="field" '+F+'><label>'+q[1]+'</label><input type="color" data-fxp="'+q[0]+'" value="'+e.p[q[0]]+'" style="width:100%;height:28px;padding:0"></div>'+(e.type==='chroma'?'<button class="btn sm" data-fxpick>Pick colour from image</button>':''):
+    '<div class="field" '+F+'><label>'+q[1]+' <small>'+e.p[q[0]]+q[6]+'</small></label><input type="range" data-fxp="'+q[0]+'" data-u="'+q[6]+'" min="'+q[2]+'" max="'+q[3]+'" step="'+q[4]+'" value="'+e.p[q[0]]+'" style="width:100%;accent-color:var(--accent)"></div>').join('')+
+   '<b style="margin-top:6px">Intensity graph</b><canvas id="fxGp" width="260" height="70" style="width:100%;height:70px;border:1px solid var(--line);border-radius:8px;background:var(--bg)"></canvas>'+
+   '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn sm primary" data-fxgraph>Edit graph</button><label style="display:flex;gap:6px;align-items:center;color:var(--dim);font-size:12.5px">Repeats <input type="number" data-fxn min="1" max="32" step="1" value="'+(e.g.n||1)+'" style="width:60px"></label></div>'+
+   '<div class="empty-note">The graph is the effect strength across the whole clip (1 = full, 0 = off). Add points to build any rhythm.</div>';
+  fxPrev();}
+const fxSel=()=>fxList().find(x=>x.id===S.sel.fx);
+$('#side').addEventListener('click',ev=>{if(S.step!=='fx')return;const b=ev.target.closest('button');if(!b)return;const d=b.dataset;
+  if(d.fxadd)addFx(d.fxadd);else if(d.fxsel){S.sel.fx=d.fxsel;renderFx();}
+  else if(d.fxdel){S.anim.fx=fxList().filter(x=>x.id!==d.fxdel);commit();renderFx();requestDraw();}
+  else if('fxpick' in d){S.fxPick=true;toast('Click the stage to pick the colour to remove.');}
+  else if('fxgraph' in d){const e=fxSel();if(e)openGraph({title:FXDEF[e.type].name+': strength over the clip',pts:e.g.pts,mode:e.g.m,yMin:0,yMax:2,lockEnds:false,presets:FXP,onChange:(p,m)=>{e.g.pts=p;e.g.m=m;requestDraw();},onDone:()=>{commit();renderFx();}});}});
+$('#side').addEventListener('input',ev=>{const k=ev.target.dataset.fxp,e=fxSel();if(!k||!e)return;e.p[k]=ev.target.type==='color'?ev.target.value:+ev.target.value;
+  const sm=ev.target.parentElement.querySelector('small');if(sm&&ev.target.type!=='color')sm.textContent=ev.target.value+(ev.target.dataset.u||'');requestDraw();});
+$('#side').addEventListener('change',ev=>{const t=ev.target,d=t.dataset,e=fxSel();
+  if(d.fxp&&e)commit();
+  else if(d.fxon!==undefined){const x=fxList().find(q=>q.id===d.fxon);if(x){x.on=t.checked;commit();requestDraw();}}
+  else if(d.fxtarget!==undefined&&e){e.target=t.value;commit();renderFx();requestDraw();}
+  else if(d.fxn!==undefined&&e){e.g.n=clamp(Math.round(+t.value)||1,1,32);commit();renderFx();requestDraw();}});
+function fxPointerDown(ev,x,y){if(!S.fxPick)return;S.fxPick=false;const e=fxSel();if(!e||e.type!=='chroma')return;
+  const px=S.img.getContext('2d').getImageData(clamp(Math.floor(x),0,S.w-1),clamp(Math.floor(y),0,S.h-1),1,1).data;
+  e.p.color='#'+[px[0],px[1],px[2]].map(v=>v.toString(16).padStart(2,'0')).join('');commit();renderFx();requestDraw();}
+function fxPointerMove(){}function fxPointerUp(){}
+
 /* ================= tutorial ================= */
 const TUT = [
   { t: 'Start with a picture', icons: ['upload'], p: ['Upload any image of a character: a drawing, a photo, a sticker. You can also drag one onto the stage or paste it.', 'Tweenslop has three steps along the top: <b>Cut</b>, <b>Rig</b>, <b>Animate</b>. Work left to right.', 'Everything stays in your browser. Nothing is uploaded anywhere.'] },
   { t: '1. Cut the character into parts', icons: ['lasso', 'poly', 'brush', 'wand', 'eraser'], p: ['Press <b>New part</b>, then trace the head, an arm, a leg, the body with the Lasso, Polygon, Brush or Wand. One part for each piece that should move on its own.', 'Use <b>Subtract</b> to clean the edges. Turn on <b>Preview cutouts</b> to see a part by itself.', 'Parts higher in the list sit in front of the ones below.'] },
   { t: '2. Add bones', icons: ['bone', 'select'], p: ['Pick the <b>Bone</b> tool and drag from where a part pivots (the shoulder) to where it ends (the hand).', 'Start the next bone on the end of one that exists, and it becomes a child that follows it (shoulder, then elbow, then wrist).', 'Choose which bone each part follows under <b>Moves with</b>, or press <b>Auto-bind</b> to match them by distance. <b>Soft bend</b> smooths the joints.'] },
   { t: '3. Animate with keyframes', icons: ['move', 'rotate', 'size', 'expand', 'liquify'], p: ['Pick Move, Rotate, Size, Expand or Liquify and drag a part or bone. Every change makes a keyframe at the playhead.', 'Click the timeline ruler to jump to another moment, then pose again. Tweenslop fills in the movement between keys.', 'Select a key (a diamond), then choose its <b>easing</b> next to the timeline: smooth, overshoot, bounce, jelly, snap. Press <b>Space</b> to play.'] },
-  { t: 'Export, shortcuts, done', icons: ['download'], p: ['<b>Export</b> saves an animated GIF, a WebM video, a sprite sheet, one PNG frame, or a project file you can open again later with <b>Open project</b>.', '<b>Space</b> play, <b>K</b> key, <b>← →</b> step a frame, <b>1 2 3</b> switch steps, <b>Ctrl+Z</b> undo, <b>F</b> fit, <b>H</b> pan, mouse wheel zoom.', 'Reopen this guide any time with the <b>?</b> button at the top.'] }
+  { t: '4. FX and custom graphs', icons: ['wand', 'move', 'liquify', 'brush'], p: ['The <b>FX</b> step has a menu for each kind of effect on the left: <b>Key</b> (chroma and luma key), <b>Motion</b> (shake, wobble, pulse, float), <b>Distort</b> (wave, RGB split, pixelate, blur, glitch) and <b>Colour</b> (hue, tint, adjust, fade, glow).', 'Every effect has an <b>intensity graph</b>. Click <b>Edit graph</b> to add as many points as you want and shape when the effect is strong or off.', 'Under Animate, select a key and press <b>Edit graph</b> by the easing box to draw your own easing curve between two keys.'] },
+  { t: 'Export, shortcuts, done', icons: ['download'], p: ['<b>Export</b> saves an animated GIF, a WebM video, a sprite sheet, one PNG frame, or a project file you can open again later with <b>Open project</b>.', '<b>Space</b> play, <b>K</b> key, <b>← →</b> step a frame, <b>1 2 3 4</b> switch steps, <b>Ctrl+Z</b> undo, <b>F</b> fit, <b>H</b> pan, mouse wheel zoom.', 'Reopen this guide any time with the <b>?</b> button at the top.'] }
 ];
 const tut = document.createElement('div'); tut.id = 'tut'; tut.hidden = true; tut.className = 'modal-back';
 document.body.appendChild(tut);
