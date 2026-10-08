@@ -1732,7 +1732,7 @@ $('#btnSample2').onclick = loadSample;
 
 /* project save / load */
 function serializeProject() {
-  const liq = {}; for (const id in S.anim.liq) liq[id] = { keys: S.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Array.from(k.f, v => Math.round(v * 100) / 100), c: k.c, cm: k.cm })) };
+  const liq = {}; for (const id in S.anim.liq) liq[id] = { keys: S.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Array.from(k.f, v => Math.round(v * 100) / 100), c: k.c, cm: k.cm, cn: k.cn })) };
   return JSON.stringify({ app: 'tweenslop', v: 1, w: S.w, h: S.h, img: S.img.toDataURL('image/png'),
     parts: S.parts.map(p => ({ id: p.id, name: p.name, visible: p.visible, bone: p.bone, soft: p.soft, hue: p.hue, mask: p.mask.toDataURL('image/png') })),
     bones: S.bones, anim: { fps: S.anim.fps, dur: S.anim.dur, loop: S.anim.loop, bones: S.anim.bones, liq, fx: S.anim.fx || [] } });
@@ -1750,7 +1750,7 @@ async function loadProject(o) {
   S.bones = o.bones; for (const b of S.bones) mx = Math.max(mx, parseInt(b.id.slice(1)) || 0);
   _uid = Math.max(_uid, mx + 1); rebuildSkeleton();
   S.anim = { fps: o.anim.fps, dur: o.anim.dur, loop: o.anim.loop, bones: o.anim.bones, liq: {}, fx: o.anim.fx || [] };
-  for (const id in o.anim.liq) S.anim.liq[id] = { keys: o.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Float32Array.from(k.f), c: k.c, cm: k.cm })) };
+  for (const id in o.anim.liq) S.anim.liq[id] = { keys: o.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Float32Array.from(k.f), c: k.c, cm: k.cm, cn: k.cn })) };
   ensureAllParts(); finishDoc(S.bones.length ? 'animate' : 'cut'); toast('Project opened.');
 }
 const IDB = {
@@ -1903,54 +1903,76 @@ modal.addEventListener('click', async e => {
 });
 
 
-/* ================= custom graphs ================= */
+/* ================= custom graphs (Alight-Motion style) ================= */
+function autoTan(pts,j){const n=pts.length,sl=i=>(pts[i+1][1]-pts[i][1])/((pts[i+1][0]-pts[i][0])||1e-9);if(n<2)return 0;if(j===0)return sl(0);if(j===n-1)return sl(n-2);const a=sl(j-1),b=sl(j);return a*b<=0?0:2*a*b/(a+b);}
 function curveEval(pts,mode,x){const n=pts.length;if(!n)return x;if(x<=pts[0][0])return pts[0][1];if(x>=pts[n-1][0])return pts[n-1][1];
   let i=0;while(i<n-2&&pts[i+1][0]<=x)i++;const x0=pts[i][0],y0=pts[i][1],x1=pts[i+1][0],y1=pts[i+1][1],h=x1-x0||1e-9,u=(x-x0)/h;
   if(mode==='step')return y0;if(mode==='linear')return y0+(y1-y0)*u;
-  const sl=j=>(pts[j+1][1]-pts[j][1])/((pts[j+1][0]-pts[j][0])||1e-9),tn=j=>{if(j===0)return sl(0);if(j===n-1)return sl(n-2);const a=sl(j-1),b=sl(j);return a*b<=0?0:2*a*b/(a+b);};
-  const m0=tn(i)*h,m1=tn(i+1)*h,u2=u*u,u3=u2*u;return(2*u3-3*u2+1)*y0+(u3-2*u2+u)*m0+(-2*u3+3*u2)*y1+(u3-u2)*m1;}
-const easeK=k=>k.e==='custom'&&k.c?(u=>curveEval(k.c,k.cm||'smooth',u)):easeFn(k.e);
-const EASEP=[['Linear',[[0,0],[1,1]],'linear'],['Ease in-out',[[0,0],[.25,.06],[.75,.94],[1,1]]],['Overshoot',[[0,0],[.5,1.25],[1,1]]],['Wobble settle',[[0,0],[.25,1.2],[.5,.85],[.75,1.08],[1,1]]],['Bounce',[[0,0],[.3,1],[.45,.8],[.6,1],[.7,.94],[.8,1],[1,1]]],['Snap',[[0,0],[.45,0],[.55,1],[1,1]]],['Anticipate',[[0,0],[.2,-.2],[.7,1.1],[1,1]]]];
-const FXP=[['Flat',[[0,1],[1,1]]],['Fade in',[[0,0],[1,1]]],['Fade out',[[0,1],[1,0]]],['Pulse',[[0,0],[.5,1],[1,0]]],['Burst',[[0,1],[.2,0],[1,0]]],['Blips',[[0,0],[.1,1],[.2,0],[.5,0],[.6,1],[.7,0],[1,0]],'linear'],['Ramp up/down',[[0,0],[.4,1],[.6,1],[1,0]],'linear']];
-const GE={el:document.createElement('div'),o:null,drag:-1};
+  const tn=j=>mode==='bezier'&&pts[j][2]!=null?pts[j][2]:autoTan(pts,j),m0=tn(i)*h,m1=tn(i+1)*h,u2=u*u,u3=u2*u;
+  return(2*u3-3*u2+1)*y0+(u3-2*u2+u)*m0+(-2*u3+3*u2)*y1+(u3-u2)*m1;}
+const cycU=(u,n)=>{n=n||1;return u>=1-1e-9?1:(u*n)%1;};
+const easeK=k=>k.e==='custom'&&k.c?(u=>curveEval(k.c,k.cm||'smooth',cycU(u,k.cn))):easeFn(k.e);
+/* preset = [label, points ([x,y] or [x,y,slope]), mode, cycles] */
+const HUMP=[[0,0,7],[.5,1,0],[1,0,-7]];
+const EASEP=[['Linear',[[0,0],[1,1]],'linear'],['Ease in-out',[[0,0],[.25,.06],[.75,.94],[1,1]]],['Overshoot',[[0,0],[.5,1.25],[1,1]]],['Wobble settle',[[0,0],[.25,1.2],[.5,.85],[.75,1.08],[1,1]]],['Bounce',[[0,0],[.3,1],[.45,.8],[.6,1],[.7,.94],[.8,1],[1,1]]],['Snap',[[0,0],[.45,0],[.55,1],[1,1]]],['Anticipate',[[0,0],[.2,-.2],[.7,1.1],[1,1]]],
+  ['Cyclic bounce',HUMP,'bezier',4],['Cyclic sine',[[0,.5],[.25,1],[.75,0],[1,.5]],'smooth',3],['Wiggle',[[0,0],[.2,1],[.4,.1],[.6,.8],[.8,.2],[1,0]],'smooth',2],['Zigzag',[[0,0],[.5,1],[1,0]],'linear',6],['Pulse train',[[0,0],[.1,1],[.5,1],[.6,0],[1,0]],'linear',3]];
+const FXP=[['Flat',[[0,1],[1,1]],'linear'],['Fade in',[[0,0],[1,1]]],['Fade out',[[0,1],[1,0]]],['Pulse',[[0,0],[.5,1],[1,0]]],['Burst',[[0,1],[.2,0],[1,0]]],['Blips',[[0,0],[.1,1],[.2,0],[.5,0],[.6,1],[.7,0],[1,0]],'linear'],['Ramp up/down',[[0,0],[.4,1],[.6,1],[1,0]],'linear'],
+  ['Cyclic throb',HUMP,'bezier',4],['Cyclic sine',[[0,.5],[.25,1],[.75,0],[1,.5]],'smooth',3],['Flicker',[[0,1],[.15,.2],[.3,1],[.5,.4],[.7,1],[.85,.1],[1,1]],'linear'],['Strobe',[[0,0],[.5,1],[1,0]],'step',6],['Zigzag',[[0,0],[.5,1],[1,0]],'linear',8]];
+const GE={el:document.createElement('div'),o:null,drag:null};
 GE.el.className='modal-back';GE.el.hidden=true;GE.el.style.cssText='z-index:70;background:transparent;pointer-events:none;place-items:center end';
-GE.el.innerHTML='<div class="modal" role="dialog" aria-label="Graph editor" style="width:min(440px,100%);pointer-events:auto"><h2 style="font-size:17px" id="geT"></h2><canvas id="geC" width="420" height="280" style="width:100%;touch-action:none;background:var(--bg);border:1px solid var(--line);border-radius:8px;cursor:crosshair"></canvas><div id="geP" style="display:flex;flex-wrap:wrap;gap:6px"></div><div style="display:flex;gap:8px;align-items:center"><span class="seg" id="geM"><button data-gm="smooth">Smooth</button><button data-gm="linear">Straight</button><button data-gm="step">Steps</button></span><span class="grow"></span><button class="btn primary" id="geD">Done</button></div><div class="empty-note">Click empty space to add a point, drag to move, double-click a point to delete it. You can still play and scrub while this is open.</div></div>';
+GE.el.innerHTML='<div class="modal" role="dialog" aria-label="Graph editor" style="width:min(580px,100%);pointer-events:auto"><h2 style="font-size:17px" id="geT"></h2>'+
+ '<div style="display:flex;gap:10px"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px"><canvas id="geC" width="420" height="280" style="width:100%;touch-action:none;background:var(--bg);border:1px solid var(--line);border-radius:8px;cursor:crosshair"></canvas>'+
+ '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="seg" id="geM"><button data-gm="smooth">Smooth</button><button data-gm="bezier">Bezier</button><button data-gm="linear">Straight</button><button data-gm="step">Steps</button></span><span class="grow"></span><span style="display:flex;gap:4px;align-items:center;color:var(--dim);font-size:12.5px">Cyclic<button class="btn sm ib" data-gn="-1" aria-label="Fewer cycles">‹</button><b id="geN" style="min-width:1.6em;text-align:center;color:var(--fg)">1</b><button class="btn sm ib" data-gn="1" aria-label="More cycles">›</button></span></div></div>'+
+ '<div id="geP" style="width:78px;flex:none;display:flex;flex-direction:column;gap:6px;overflow-y:auto;max-height:340px"></div></div>'+
+ '<div style="display:flex;justify-content:flex-end"><button class="btn primary" id="geD">Done</button></div><div class="empty-note">Tap empty space to add a point, drag to move, double-click to delete. In Bezier mode drag the yellow handles to bend the curve. Use Cyclic ‹ › to repeat the curve. Playback and scrubbing still work while this is open.</div></div>';
 document.body.appendChild(GE.el);
-const gGeo=()=>{const c=$('#geC'),o=GE.o,P=24;return{c,P,W:c.width,H:c.height,X:x=>P+x*(c.width-2*P),Y:y=>c.height-P-(y-o.yMin)/(o.yMax-o.yMin)*(c.height-2*P)};};
-function geDraw(){const o=GE.o,g=gGeo(),c=g.c.getContext('2d'),W=g.W,H=g.H,P=g.P;c.clearRect(0,0,W,H);c.font='11px monospace';c.fillStyle=COL['--dim'];c.lineWidth=1;
-  for(let i=0;i<=4;i++){const x=g.X(i/4);c.strokeStyle=COL['--line'];c.beginPath();c.moveTo(x,P);c.lineTo(x,H-P);c.stroke();}
-  for(const v of[0,1]){const y=g.Y(v);c.strokeStyle=COL['--dim'];c.beginPath();c.moveTo(P,y);c.lineTo(W-P,y);c.stroke();c.fillText(v,4,y+4);}
-  c.beginPath();for(let i=0;i<=240;i++){const u=i/240,x=g.X(u),y=g.Y(curveEval(o.pts,o.mode,u));i?c.lineTo(x,y):c.moveTo(x,y);}
-  c.strokeStyle=COL['--accent'];c.lineWidth=2.5;c.stroke();
-  o.pts.forEach((q,i)=>{c.beginPath();c.arc(g.X(q[0]),g.Y(q[1]),i===GE.drag?8:6,0,7);c.fillStyle=COL['--key'];c.fill();c.lineWidth=2;c.strokeStyle=COL['--bg'];c.stroke();});
-  GE.el.querySelectorAll('[data-gm]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.gm===o.mode));}
+const gGeo=()=>{const c=$('#geC'),o=GE.o,P=24,n=o.n||1,xs=(c.width-2*P)/n,ys=(c.height-2*P)/(o.yMax-o.yMin);return{c,P,W:c.width,H:c.height,n,xs,ys,X:(x,k)=>P+(x+(k||0))*xs,Y:y=>c.height-P-(y-o.yMin)*ys};};
+const gHnd=(g,p,i,last)=>{const m=p[2]!=null?p[2]:0,s=i===last?-1:1,dy=-m*g.ys/g.xs,L=Math.hypot(1,dy);return[g.X(p[0])+s*34/L,g.Y(p[1])+s*34*dy/L];};
+function geEnsureM(){const o=GE.o;if(o.mode==='bezier')o.pts.forEach((p,j)=>{if(p[2]==null)p[2]=autoTan(o.pts,j);});}
+function geDraw(){const o=GE.o,g=gGeo(),c=g.c.getContext('2d'),W=g.W,H=g.H,P=g.P,n=g.n,last=o.pts.length-1;c.clearRect(0,0,W,H);c.font='11px monospace';c.lineWidth=1;
+  const gv=n>1?n:4;for(let i=0;i<=gv;i++){const x=P+i/gv*(W-2*P);c.strokeStyle=COL['--line'];c.beginPath();c.moveTo(x,P);c.lineTo(x,H-P);c.stroke();}
+  c.fillStyle=COL['--dim'];c.strokeStyle=COL['--dim'];c.setLineDash([5,4]);let y=g.Y(1);c.beginPath();c.moveTo(P,y);c.lineTo(W-P,y);c.stroke();c.fillText('1',4,y+4);c.setLineDash([]);
+  y=g.Y(0);c.strokeStyle=COL['--fg'];c.lineWidth=2;c.beginPath();c.moveTo(P,y);c.lineTo(W-P,y);c.stroke();c.fillText('0',4,y+4);
+  for(let k=n-1;k>=0;k--){c.beginPath();for(let i=0;i<=160;i++){const u=i/160,x=g.X(u,k),yy=g.Y(curveEval(o.pts,o.mode,u));i?c.lineTo(x,yy):c.moveTo(x,yy);}c.globalAlpha=k?.4:1;c.strokeStyle=COL['--bone'];c.lineWidth=k?2:3;c.stroke();}c.globalAlpha=1;
+  if(o.mode==='bezier')o.pts.forEach((p,i)=>{const h=gHnd(g,p,i,last);c.strokeStyle=COL['--key'];c.lineWidth=1.5;c.beginPath();c.moveTo(g.X(p[0]),g.Y(p[1]));c.lineTo(h[0],h[1]);c.stroke();c.beginPath();c.arc(h[0],h[1],7,0,7);c.fillStyle=COL['--key'];c.fill();c.strokeStyle=COL['--bg'];c.lineWidth=2;c.stroke();});
+  o.pts.forEach((q,i)=>{c.beginPath();c.arc(g.X(q[0]),g.Y(q[1]),GE.drag&&!GE.drag.h&&GE.drag.i===i?10:8,0,7);c.fillStyle=COL['--fg'];c.fill();c.lineWidth=2;c.strokeStyle=COL['--bg'];c.stroke();});
+  $('#geN').textContent=n;GE.el.querySelectorAll('[data-gm]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.gm===o.mode));}
 const gPt=e=>{const g=gGeo(),r=g.c.getBoundingClientRect(),o=GE.o,px=(e.clientX-r.left)*g.W/r.width,py=(e.clientY-r.top)*g.H/r.height;
-  return{px,py,g,k:g.W/r.width,x:clamp((px-g.P)/(g.W-2*g.P),0,1),y:clamp(o.yMin+(g.H-g.P-py)/(g.H-2*g.P)*(o.yMax-o.yMin),o.yMin,o.yMax)};};
+  return{px,py,g,k:g.W/r.width,x:clamp((px-g.P)/g.xs,0,1),y:clamp(o.yMin+(g.H-g.P-py)/g.ys,o.yMin,o.yMax)};};
 const gSnap=v=>Math.abs(v)<.03?0:Math.abs(v-1)<.03?1:v;
-function geNear(q){let b=-1,bd=14*q.k;GE.o.pts.forEach((p,i)=>{const d=Math.hypot(q.g.X(p[0])-q.px,q.g.Y(p[1])-q.py);if(d<bd){bd=d;b=i;}});return b;}
-function geChange(){geDraw();GE.o.onChange&&GE.o.onChange(GE.o.pts,GE.o.mode);}
-function openGraph(o){GE.o=o;GE.drag=-1;$('#geT').textContent=o.title;
-  $('#geP').innerHTML=o.presets.map((p,i)=>'<button class="btn sm" data-gp="'+i+'">'+p[0]+'</button>').join('');GE.el.hidden=false;geDraw();}
+function geHit(q){const o=GE.o,g=q.g,last=o.pts.length-1,R=14*q.k;
+  if(o.mode==='bezier')for(let i=0;i<=last;i++){const h=gHnd(g,o.pts[i],i,last);if(Math.hypot(h[0]-q.px,h[1]-q.py)<R)return{i,h:true};}
+  let b=-1,bd=R;o.pts.forEach((p,i)=>{const d=Math.hypot(g.X(p[0])-q.px,g.Y(p[1])-q.py);if(d<bd){bd=d;b=i;}});return b<0?null:{i:b,h:false};}
+function geChange(){geDraw();GE.o.onChange&&GE.o.onChange(GE.o.pts,GE.o.mode,GE.o.n||1);}
+function geThumb(cv,p){const c=cv.getContext('2d'),W=cv.width,H=cv.height,n=p[3]||1,m=p[2]||'smooth';c.clearRect(0,0,W,H);c.strokeStyle=COL['--line'];c.lineWidth=1;c.beginPath();c.moveTo(2,H-5.5);c.lineTo(W-2,H-5.5);c.stroke();c.beginPath();
+  for(let i=0;i<=80;i++){const u=i/80,v=curveEval(p[1],m,cycU(u,n)),x=2+u*(W-4),y=H-6-clamp(v,-.3,1.4)*(H-12)/1.2;i?c.lineTo(x,y):c.moveTo(x,y);}c.strokeStyle=COL['--bone'];c.lineWidth=2;c.stroke();}
+function openGraph(o){o.n=o.n||1;GE.o=o;GE.drag=null;geEnsureM();$('#geT').textContent=o.title;
+  $('#geP').innerHTML=o.presets.map((p,i)=>'<button class="btn" data-gp="'+i+'" title="'+p[0]+'" aria-label="'+p[0]+'" style="padding:3px;height:auto;flex-direction:column;gap:1px"><canvas width="60" height="34"></canvas><small style="font-size:9.5px;color:var(--dim)">'+p[0]+'</small></button>').join('');
+  GE.el.hidden=false;$('#geP').querySelectorAll('canvas').forEach((cv,i)=>geThumb(cv,o.presets[i]));geDraw();}
 function closeGraph(){if(GE.el.hidden)return;GE.el.hidden=true;const o=GE.o;GE.o=null;o&&o.onDone&&o.onDone();}
 $('#geD').onclick=closeGraph;
 GE.el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!GE.o)return;const o=GE.o;
-  if(b.dataset.gp!==undefined){const p=o.presets[+b.dataset.gp];o.pts.splice(0,o.pts.length,...p[1].map(q=>q.slice()));o.mode=p[2]||'smooth';geChange();}
-  else if(b.dataset.gm){o.mode=b.dataset.gm;geChange();}});
+  if(b.dataset.gp!==undefined){const p=o.presets[+b.dataset.gp];o.pts.splice(0,o.pts.length,...p[1].map(q=>q.slice()));o.mode=p[2]||'smooth';o.n=p[3]||1;geEnsureM();geChange();}
+  else if(b.dataset.gm){o.mode=b.dataset.gm;geEnsureM();geChange();}
+  else if(b.dataset.gn){o.n=clamp((o.n||1)+ +b.dataset.gn,1,32);geChange();}});
 const geC=$('#geC');
-geC.addEventListener('pointerdown',e=>{const o=GE.o,q=gPt(e);let i=geNear(q);
-  if(i<0){let j=0;while(j<o.pts.length&&o.pts[j][0]<q.x)j++;if(j===0||j===o.pts.length)return;o.pts.splice(j,0,[q.x,gSnap(q.y)]);i=j;}
-  GE.drag=i;geC.setPointerCapture(e.pointerId);geChange();});
-geC.addEventListener('pointermove',e=>{if(GE.drag<0)return;const o=GE.o,q=gPt(e),i=GE.drag,n=o.pts.length,p=o.pts[i];
-  if(i>0&&i<n-1)p[0]=clamp(q.x,o.pts[i-1][0]+.004,o.pts[i+1][0]-.004);
-  if(!(o.lockEnds&&(i===0||i===n-1)))p[1]=gSnap(q.y);geChange();});
-geC.addEventListener('pointerup',()=>{GE.drag=-1;geDraw();});
-const geDel=e=>{e.preventDefault();const o=GE.o,i=geNear(gPt(e));if(i>0&&i<o.pts.length-1){o.pts.splice(i,1);geChange();}};
+geC.addEventListener('pointerdown',e=>{const o=GE.o,q=gPt(e);let hit=geHit(q);
+  if(!hit){let j=0;while(j<o.pts.length&&o.pts[j][0]<q.x)j++;if(j===0||j===o.pts.length)return;const np=[q.x,gSnap(q.y)];
+    if(o.mode==='bezier'){const d=.004;np[2]=clamp((curveEval(o.pts,'bezier',q.x+d)-curveEval(o.pts,'bezier',q.x-d))/(2*d),-40,40);}
+    o.pts.splice(j,0,np);hit={i:j,h:false};}
+  GE.drag=hit;geC.setPointerCapture(e.pointerId);geChange();});
+geC.addEventListener('pointermove',e=>{if(!GE.drag)return;const o=GE.o,q=gPt(e),i=GE.drag.i,n=o.pts.length,p=o.pts[i];
+  if(GE.drag.h){const s=i===n-1?-1:1;let dx=q.px-q.g.X(p[0]);if(dx*s<2)dx=s*2;p[2]=clamp(-((q.py-q.g.Y(p[1]))/dx)*q.g.xs/q.g.ys,-40,40);}
+  else{if(i>0&&i<n-1)p[0]=clamp(q.x,o.pts[i-1][0]+.004,o.pts[i+1][0]-.004);if(!(o.lockEnds&&(i===0||i===n-1)))p[1]=gSnap(q.y);}
+  geChange();});
+geC.addEventListener('pointerup',()=>{GE.drag=null;if(GE.o)geDraw();});
+const geDel=e=>{e.preventDefault();const o=GE.o,h=geHit(gPt(e));if(h&&!h.h&&h.i>0&&h.i<o.pts.length-1){o.pts.splice(h.i,1);geChange();}};
 geC.addEventListener('dblclick',geDel);geC.addEventListener('contextmenu',geDel);
 
 function easeEdit(){const k=lookupKey(S.sel.key);if(!k){toast('Select a keyframe on the timeline first.');return;}
-  if(!k.c){const f=easeFn(k.e);k.c=[0,.2,.4,.6,.8,1].map(u=>[u,f(u)]);k.cm='smooth';}k.e='custom';
-  openGraph({title:'Easing curve: how this key moves to the next',pts:k.c,mode:k.cm,yMin:-.5,yMax:1.5,lockEnds:true,presets:EASEP,
-    onChange:(p,m)=>{k.c=p;k.cm=m;refreshEase();requestDraw();},onDone:()=>{commit();refreshTimeline();}});}
+  if(!k.c){const f=easeFn(k.e);k.c=[0,.2,.4,.6,.8,1].map(u=>[u,f(u)]);k.cm='smooth';k.cn=1;}k.e='custom';
+  openGraph({title:'Easing curve: how this key moves to the next',pts:k.c,mode:k.cm||'smooth',n:k.cn||1,yMin:-.5,yMax:1.5,lockEnds:false,presets:EASEP,
+    onChange:(p,m,n)=>{k.c=p;k.cm=m;k.cn=n;refreshEase();requestDraw();},onDone:()=>{commit();refreshTimeline();}});}
 $('#easeEdit').onclick=easeEdit;
 
 /* ================= effects ================= */
@@ -2065,7 +2087,7 @@ $('#side').addEventListener('click',ev=>{if(S.step!=='fx')return;const b=ev.targ
   if(d.fxadd)addFx(d.fxadd);else if(d.fxsel){S.sel.fx=d.fxsel;renderFx();}
   else if(d.fxdel){S.anim.fx=fxList().filter(x=>x.id!==d.fxdel);commit();renderFx();requestDraw();}
   else if('fxpick' in d){S.fxPick=true;toast('Click the stage to pick the colour to remove.');}
-  else if('fxgraph' in d){const e=fxSel();if(e)openGraph({title:FXDEF[e.type].name+': strength over the clip',pts:e.g.pts,mode:e.g.m,yMin:0,yMax:2,lockEnds:false,presets:FXP,onChange:(p,m)=>{e.g.pts=p;e.g.m=m;requestDraw();},onDone:()=>{commit();renderFx();}});}});
+  else if('fxgraph' in d){const e=fxSel();if(e)openGraph({title:FXDEF[e.type].name+': strength over the clip',pts:e.g.pts,mode:e.g.m,n:e.g.n||1,yMin:0,yMax:2,lockEnds:false,presets:FXP,onChange:(p,m,n)=>{e.g.pts=p;e.g.m=m;e.g.n=n;requestDraw();},onDone:()=>{commit();renderFx();}});}});
 $('#side').addEventListener('input',ev=>{const k=ev.target.dataset.fxp,e=fxSel();if(!k||!e)return;e.p[k]=ev.target.type==='color'?ev.target.value:+ev.target.value;
   const sm=ev.target.parentElement.querySelector('small');if(sm&&ev.target.type!=='color')sm.textContent=ev.target.value+(ev.target.dataset.u||'');requestDraw();});
 $('#side').addEventListener('change',ev=>{const t=ev.target,d=t.dataset,e=fxSel();
