@@ -1764,16 +1764,19 @@ function scheduleAutosave() { clearTimeout(_asT); _asT = setTimeout(() => { if (
 /* ================= export ================= */
 const modal = document.createElement('div'); modal.id = 'modal'; modal.hidden = true; modal.className = 'modal-back';
 modal.innerHTML = '<div class="modal" role="dialog" aria-label="Export"><h2>Export</h2>' +
-  '<div class="field"><label>Size</label><span class="seg" id="xScale"><button data-s="1" aria-pressed="true">1×</button><button data-s="2" aria-pressed="false">2×</button></span></div>' +
+  '<div class="field"><label>Resolution</label><select id="xRes"><option value="1">Original (1×)</option><option value="2">2×</option><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K (2160p)</option></select></div>' +
+  '<div class="field"><label>Frame rate</label><select id="xFps"><option value="p">Same as project</option><option value="12">12 fps</option><option value="24">24 fps</option><option value="30">30 fps</option><option value="48">48 fps</option><option value="60">60 fps</option></select></div>' +
+  '<div class="field"><label>Bitrate</label><select id="xBr"><option value="auto">Auto</option><option value="2">2 Mbps</option><option value="4">4 Mbps</option><option value="8">8 Mbps</option><option value="16">16 Mbps</option><option value="32">32 Mbps</option><option value="64">64 Mbps</option></select></div>' +
+  '<div class="field"><label>Motion blur</label><select id="xMb"><option value="0">Off</option><option value="4">4 samples</option><option value="8">8 samples</option><option value="16">16 samples</option><option value="32">32 samples</option></select></div>' +
+  '<div class="field"><label>Shutter</label><select id="xSh"><option value="90">90°</option><option value="180" selected>180°</option><option value="270">270°</option><option value="360">360°</option></select></div>' +
   '<div class="field"><label>Background</label><span class="row"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="xTrans" checked>Transparent</label><input type="color" id="xColor" value="#ffffff" style="width:34px;height:28px;padding:0;border:1px solid var(--line);border-radius:6px;background:none"></span></div>' +
-  '<div class="col"><button class="btn primary" data-x="gif">Animated GIF (.gif)</button><button class="btn" data-x="webm">Video (.webm)</button><button class="btn" data-x="sheet">Sprite sheet (.png)</button><button class="btn" data-x="frame">This frame (.png)</button><button class="btn" data-x="proj">Project file (.json)</button></div>' +
+  '<div class="col"><button class="btn primary" data-x="mp4">Video (.mp4)</button><button class="btn" data-x="gif">Animated GIF (.gif)</button><button class="btn" data-x="webm">Video (.webm)</button><button class="btn" data-x="sheet">Sprite sheet (.png)</button><button class="btn" data-x="frame">This frame (.png)</button><button class="btn" data-x="proj">Project file (.json)</button></div>' +
   '<div id="xStat" class="empty-note" role="status">GIF keeps transparency. Video uses the background colour.</div>' +
   '<div class="row" style="justify-content:flex-end"><button class="btn" id="xClose">Close</button></div></div>';
 document.body.appendChild(modal);
 function closeModal() { modal.hidden = true; }
 $('#btnExport').onclick = () => { if (!S.w) { toast('Load an image first.'); return; } if (S.playing) togglePlay(false); $('#xStat').textContent = 'GIF keeps transparency. Video uses the background colour.'; modal.hidden = false; };
 modal.addEventListener('click', e => { if (e.target === modal || e.target.id === 'xClose') closeModal(); });
-$('#xScale').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $$('#xScale button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
 
 /* ---------- GIF encoder ---------- */
 function medianCut(counts, target) {
@@ -1815,7 +1818,7 @@ function lzwEncode(idx, out) {
 }
 async function encodeGif(sc, bg, onProg) {
   const w = Math.round(S.w * sc), hh = Math.round(S.h * sc), trans = !bg;
-  const delay = Math.max(2, Math.round(100 / Math.min(S.anim.fps, 33))), n = Math.max(1, Math.round(S.anim.dur * 100 / delay));
+  const delay = Math.max(2, Math.round(100 / Math.min(expFps(), 33))), n = Math.max(1, Math.round(S.anim.dur * 100 / delay));
   const cv = mkCanvas(w, hh), cx = cv.getContext('2d', { willReadFrequently: true });
   const counts = new Uint32Array(32768), step = Math.max(1, Math.floor(n / 14));
   for (let i = 0; i < n; i += step) {
@@ -1859,11 +1862,12 @@ async function saveFile(name, data) {
   }
 }
 const blobOf = (cv, type) => new Promise(r => cv.toBlob(r, type || 'image/png'));
-const expScale = () => +($('#xScale [aria-pressed="true"]').dataset.s);
+const expScale = () => { const v = +$('#xRes').value; return v >= 100 ? v / S.h : v; };
 const expBg = () => $('#xTrans').checked ? null : $('#xColor').value;
 modal.addEventListener('click', async e => {
   const b = e.target.closest('[data-x]'); if (!b) return;
-  const kind = b.dataset.x, sc = expScale(), n = Math.max(1, Math.round(S.anim.dur * S.anim.fps));
+  const kind = b.dataset.x, sc = expScale(), fps = expFps(), n = Math.max(1, Math.round(S.anim.dur * fps));
+  EXPMB = +$('#xMb').value > 1 ? { n: +$('#xMb').value, shut: +$('#xSh').value, fps } : null;
   b.disabled = true;
   try {
     ensureAllParts();
@@ -1873,18 +1877,19 @@ modal.addEventListener('click', async e => {
       if (cols * fw > 16000 || rows * fh > 16000) { $('#xStat').textContent = 'Too many frames for one sheet at this size. Use 1× or a shorter clip.'; }
       else {
         const cv = mkCanvas(cols * fw, rows * fh), cx = cv.getContext('2d'), fr = mkCanvas(fw, fh);
-        for (let i = 0; i < n; i++) { renderFrame(fr, i / S.anim.fps, sc, expBg()); cx.drawImage(fr, (i % cols) * fw, Math.floor(i / cols) * fh); }
+        for (let i = 0; i < n; i++) { renderFrame(fr, i / fps, sc, expBg()); cx.drawImage(fr, (i % cols) * fw, Math.floor(i / cols) * fh); }
         await saveFile('tweenslop-sheet-' + cols + 'x' + rows + '.png', await blobOf(cv));
       }
     } else if (kind === 'gif') {
       const blob = await encodeGif(sc, expBg(), m => { $('#xStat').textContent = m; });
       await saveFile('tweenslop.gif', blob);
+    } else if (kind === 'mp4') { await exportMp4(fps, n, expBg() || '#ffffff');
     } else if (kind === 'webm') {
       if (!window.MediaRecorder) { $('#xStat').textContent = 'This browser cannot record video.'; }
       else {
-        const cv = mkCanvas(Math.round(S.w * sc / 2) * 2, Math.round(S.h * sc / 2) * 2), stream = cv.captureStream(S.anim.fps);
+        const cv = mkCanvas(Math.round(S.w * sc / 2) * 2, Math.round(S.h * sc / 2) * 2), stream = cv.captureStream(fps);
         const mt = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
-        const rec = new MediaRecorder(stream, { mimeType: mt, videoBitsPerSecond: 8e6 }), chunks = [];
+        const rec = new MediaRecorder(stream, { mimeType: mt, videoBitsPerSecond: expBr(cv.width, cv.height, fps) }), chunks = [];
         rec.ondataavailable = ev => ev.data.size && chunks.push(ev.data);
         const done = new Promise(r => { rec.onstop = r; });
         renderFrame(cv, 0, sc, expBg() || '#ffffff'); rec.start(250);
@@ -1892,14 +1897,14 @@ modal.addEventListener('click', async e => {
         while (true) {
           const t = (performance.now() - t0) / 1000; if (t >= dur) break;
           renderFrame(cv, t, sc, expBg() || '#ffffff'); $('#xStat').textContent = 'Recording ' + t.toFixed(1) + 's / ' + dur + 's';
-          await new Promise(r => setTimeout(r, 1000 / S.anim.fps));
+          await new Promise(r => setTimeout(r, 1000 / fps));
         }
         renderFrame(cv, dur, sc, expBg() || '#ffffff'); await new Promise(r => setTimeout(r, 120));
         rec.stop(); await done; await saveFile('tweenslop.webm', new Blob(chunks, { type: 'video/webm' }));
       }
     } else if (kind === 'proj') await saveFile('tweenslop-project.json', serializeProject());
   } catch (err) { $('#xStat').textContent = 'Export failed: ' + (err && err.message || err); }
-  b.disabled = false;
+  EXPMB = null; b.disabled = false;
 });
 
 
@@ -2000,12 +2005,16 @@ const FXDEF={
 const PIX=new Set(['chroma','luma','wave','rgb','pixel','blur','glitch','hue','tint','adjust','fade','glow']);
 const fxList=()=>S.anim.fx||(S.anim.fx=[]);
 function fxMo(e,t){const d=Math.max(S.anim.dur,.01),n=e.g.n||1;let u=t/d*n;u=u>=n-1e-6?1:u%1;const m=curveEval(e.g.pts,e.g.m,u);return Math.abs(m)<.002?0:m;}
-function fxMat(E,t,pv){let M=MI;for(const e of E){const m=fxMo(e,t);if(!m)continue;const p=e.p,T=e.type,w=6.2832*(p.sp||0)*t;let dx=0,dy=0,r=0,sx=1,sy=1;
+function fxMat(E,t,pv){let M=MI;for(const e of E){const m=fxMo(e,t);if(!m)continue;const p=e.p,T=e.type,w=6.2832*(p.sp||0)*t;let dx=0,dy=0,r=0,sx=1,sy=1,kx=0;
   if(T==='shake'){dx=nz(t*p.sp,1)*p.amt*m;dy=nz(t*p.sp,2)*p.amt*m;r=nz(t*p.sp,3)*p.rot*m;}
   else if(T==='wobble'){r=Math.sin(w)*p.rot*m;const q=Math.cos(w)*p.sq/100*m;sx=1+q;sy=1-q;}
   else if(T==='pulse'){sx=sy=1+Math.sin(w)*p.amt/100*m;}
-  else if(T==='float'){dx=Math.sin(w)*p.x*m;dy=Math.sin(w*1.3+1)*p.y*m;}else continue;
-  M=mmul(M,mmul(mmul(mmul(mT(pv[0]+dx,pv[1]+dy),mR(r*Math.PI/180)),mS(sx,sy)),mT(-pv[0],-pv[1])));}return M;}
+  else if(T==='float'){dx=Math.sin(w)*p.x*m;dy=Math.sin(w*1.3+1)*p.y*m;}
+  else if(T==='spin'){r=p.rate*t*m;}
+  else if(T==='jitter'){const fr=Math.floor(t*p.fps);dx=(hs(fr*3.1)-.5)*2*p.amt*m;dy=(hs(fr*5.7+9)-.5)*2*p.amt*m;r=(hs(fr*7.3+4)-.5)*2*p.rot*m;}
+  else if(T==='skew'){kx=Math.tan(Math.sin(w)*p.ang*m*Math.PI/180);}
+  else if(T==='bounce'){const a=Math.abs(Math.sin(w/2)),q=(1-a)*p.sq/100*m;dy=-a*p.h*m;sx=1+q;sy=1-q;}else continue;
+  M=mmul(M,mmul(mmul(mmul(mmul(mT(pv[0]+dx,pv[1]+dy),mR(r*Math.PI/180)),[1,0,kx,1,0,0]),mS(sx,sy)),mT(-pv[0],-pv[1])));}return M;}
 let FXD=0;const FXC={};
 function fxCv(k,W,H){let c=FXC[k];if(!c||c.width!==W||c.height!==H){c=FXC[k]=mkCanvas(W,H);}return c;}
 function fxCopy(c,W,H,k){const t=fxCv(k,W,H),x=t.getContext('2d');x.setTransform(1,0,0,1,0,0);x.globalCompositeOperation='source-over';x.globalAlpha=1;x.clearRect(0,0,W,H);x.drawImage(c.canvas,0,0);return t;}
@@ -2057,10 +2066,78 @@ function drawParts(ctx,pose,t,rest,px,E){
     pix.length?fxRun(ctx,one,pix,t,px):one(ctx);}}
 function drawScene(ctx,pose,t,rest,px){
   const E=rest?[]:fxList().filter(e=>e.on&&FXDEF[e.type]);
+  if(!rest&&!FXMB){const f=E.find(e=>e.type==='mblur'&&e.target==='all'&&fxMo(e,t));
+    if(f){mbDraw(ctx,f.p,fxMo(f,t),S.anim.fps,t,px);return;}if(EXPMB){mbDraw(ctx,EXPMB,1,EXPMB.fps,t,px);return;}}
   if(!E.length){drawParts(ctx,pose,t,rest,px,[]);return;}
   const A=E.filter(e=>e.target==='all'),pix=fxPix(A,t),G=fxMat(A,t,[S.w/2,S.h/2]);
   const body=c=>{c.save();c.transform(G[0],G[1],G[2],G[3],G[4],G[5]);drawParts(c,pose,t,rest,px,E);c.restore();};
   pix.length?fxRun(ctx,body,pix,t,px):body(ctx);}
+
+/* ---- extra effects ---- */
+Object.assign(FXDEF,{
+ spin:{cat:'motion',name:'Spin',p:[['rate','Speed',-720,720,5,90,'°/s']]},
+ jitter:{cat:'motion',name:'Jitter (stepped)',p:[['amt','Distance',0,60,1,6,'px'],['rot','Twist',0,20,.5,2,'°'],['fps','Steps per sec',2,30,1,12,'']]},
+ skew:{cat:'motion',name:'Skew',p:[['ang','Lean',0,45,.5,10,'°'],['sp','Speed',.1,8,.1,1.5,'Hz']]},
+ bounce:{cat:'motion',name:'Bounce',p:[['h','Height',0,200,1,40,'px'],['sp','Speed',.2,4,.1,1.2,'Hz'],['sq','Squash',0,40,1,12,'%']]},
+ mirror:{cat:'distort',name:'Mirror',p:[['axis','Top/bottom (1)',0,1,1,0,''],['flip','Other side (1)',0,1,1,0,'']]},
+ scan:{cat:'distort',name:'Scanlines',p:[['gap','Spacing',2,30,1,6,'px'],['dark','Darkness',0,100,1,45,'%'],['sp','Scroll',0,10,.5,0,'']]},
+ noise:{cat:'distort',name:'Film grain',p:[['amt','Grain',0,100,1,30,'%'],['fps','Flicker rate',1,60,1,24,'Hz']]},
+ mblur:{cat:'distort',name:'Motion blur',scene:true,p:[['n','Samples',2,24,1,8,''],['shut','Shutter',10,720,10,180,'°']]},
+ posterize:{cat:'color',name:'Posterize',p:[['lv','Levels',2,16,1,5,'']]},
+ invert:{cat:'color',name:'Invert',p:[['amt','Amount',0,100,1,100,'%']]},
+ vignette:{cat:'color',name:'Vignette',p:[['amt','Darkness',0,100,1,60,'%'],['size','Size',10,150,1,70,'%']]},
+ outline:{cat:'color',name:'Outline',p:[['color','Colour','color','#ffffff'],['w','Width',1,30,1,4,'px']]},
+ shadow:{cat:'color',name:'Drop shadow',p:[['color','Colour','color','#000000'],['dx','Offset X',-60,60,1,8,'px'],['dy','Offset Y',-60,60,1,10,'px'],['bl','Blur',0,40,1,8,'px'],['op','Opacity',0,100,1,60,'%']]}});
+['mirror','scan','noise','posterize','invert','vignette','outline','shadow'].forEach(k=>PIX.add(k));
+function fxSil(c,W,H,color,dk,o){const sl=fxCv('q'+dk,W,H),x=sl.getContext('2d');x.setTransform(1,0,0,1,0,0);x.globalAlpha=1;x.globalCompositeOperation='source-over';x.clearRect(0,0,W,H);x.drawImage(o,0,0);x.globalCompositeOperation='source-in';x.fillStyle=color;x.fillRect(0,0,W,H);x.globalCompositeOperation='source-over';return sl;}
+Object.assign(FXOP,{
+ posterize(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,L=p.lv-1,q=clamp(m,0,1);for(let i=0;i<a.length;i+=4)for(let j=0;j<3;j++){const v=a[i+j];a[i+j]=v+(Math.round(v/255*L)/L*255-v)*q;}c.putImageData(d,0,0);},
+ invert(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,q=clamp(p.amt/100*m,0,1);for(let i=0;i<a.length;i+=4)for(let j=0;j<3;j++)a[i+j]+=(255-2*a[i+j])*q;c.putImageData(d,0,0);},
+ vignette(c,p,m,s){const W=s.W,H=s.H,d=c.getImageData(0,0,W,H),a=d.data,cx=W/2,cy=H/2,R=Math.hypot(cx,cy)*p.size/100,q=p.amt/100*clamp(m,0,1);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4;if(!a[i+3])continue;const k=1-q*clamp((Math.hypot(x-cx,y-cy)/R-.5)*1.6,0,1);a[i]*=k;a[i+1]*=k;a[i+2]*=k;}c.putImageData(d,0,0);},
+ noise(c,p,m,s){const d=c.getImageData(0,0,s.W,s.H),a=d.data,amp=p.amt*2.55*m;let r=(Math.floor(s.t*p.fps)*9301+49297)>>>0;
+  for(let i=0;i<a.length;i+=4){if(!a[i+3])continue;r=(r*1664525+1013904223)>>>0;const v=((r>>>16&255)/255-.5)*amp;a[i]+=v;a[i+1]+=v;a[i+2]+=v;}c.putImageData(d,0,0);},
+ scan(c,p,m,s){const W=s.W,H=s.H,g=Math.max(2,p.gap*s.sc),off=(s.t*p.sp*g)%g;c.save();c.globalCompositeOperation='source-atop';c.fillStyle='rgba(0,0,0,'+clamp(p.dark/100*m,0,1)+')';for(let y=off-g;y<H;y+=g)c.fillRect(0,y,W,g/2);c.restore();},
+ mirror(c,p,m,s){const W=s.W,H=s.H,tm=fxCopy(c,W,H,'r'+s.dk),a=clamp(m,0,1),f=p.flip?1:0;c.save();
+  if(!p.axis){const sx=f?W/2:0,dx=f?0:W/2;if(a>.99)c.clearRect(dx,0,W/2,H);c.globalAlpha=a;c.translate(W,0);c.scale(-1,1);c.drawImage(tm,sx,0,W/2,H,sx,0,W/2,H);}
+  else{const sy=f?H/2:0,dy=f?0:H/2;if(a>.99)c.clearRect(0,dy,W,H/2);c.globalAlpha=a;c.translate(0,H);c.scale(1,-1);c.drawImage(tm,0,sy,W,H/2,0,sy,W,H/2);}c.restore();},
+ outline(c,p,m,s){const W=s.W,H=s.H,o=fxCopy(c,W,H,'o'+s.dk),sl=fxSil(c,W,H,p.color,s.dk,o),r=p.w*s.sc*clamp(m,0,2);c.clearRect(0,0,W,H);for(let i=0;i<16;i++){const g=i/16*6.2832;c.drawImage(sl,Math.cos(g)*r,Math.sin(g)*r);}c.drawImage(o,0,0);},
+ shadow(c,p,m,s){const W=s.W,H=s.H,o=fxCopy(c,W,H,'o'+s.dk),sl=fxSil(c,W,H,p.color,s.dk,o);c.clearRect(0,0,W,H);c.globalAlpha=clamp(p.op/100*m,0,1);c.drawImage(sl,p.dx*s.sc,p.dy*s.sc);c.globalAlpha=1;fxBlur(c,p.bl*s.sc,s,'w'+s.dk);c.drawImage(o,0,0);}});
+/* ---- motion blur: averages several sub-frames across the shutter interval ---- */
+let FXMB=false,EXPMB=null;
+function mbDraw(ctx,P,m,fps,t,px){const sc=clamp(px,.25,2),W=Math.max(1,Math.round(S.w*sc)),H=Math.max(1,Math.round(S.h*sc)),N=Math.round(clamp(P.n,2,32)),iv=P.shut/360/fps*m;
+  const acc=fxCv('mbA',W,H),ac=acc.getContext('2d'),tm=fxCv('mbT',W,H),tc=tm.getContext('2d');ac.setTransform(1,0,0,1,0,0);ac.clearRect(0,0,W,H);
+  FXMB=true;try{for(let i=0;i<N;i++){const tt=clamp(t+(i/(N-1)-.5)*iv,0,S.anim.dur);tc.setTransform(1,0,0,1,0,0);tc.clearRect(0,0,W,H);tc.setTransform(sc,0,0,sc,0,0);drawScene(tc,computePose(tt,false),tt,false,sc);
+    ac.globalCompositeOperation='lighter';ac.globalAlpha=1/N;ac.drawImage(tm,0,0);}}finally{FXMB=false;}
+  ac.globalAlpha=1;ac.globalCompositeOperation='source-over';ctx.drawImage(acc,0,0,W,H,0,0,S.w,S.h);}
+/* ---- MP4 export (WebCodecs H.264 + tiny built-in muxer) ---- */
+function mp4Mux(ch,desc,w,h,fps){
+  const u32=n=>[n>>>24&255,n>>>16&255,n>>>8&255,n&255],u16=n=>[n>>8&255,n&255],str=s=>[...s].map(c=>c.charCodeAt(0)),z=n=>new Array(n).fill(0);
+  const box=(t,...p)=>{const b=p.flat();return[...u32(b.length+8),...str(t),...b];},full=(t,fl,...p)=>box(t,0,fl>>16&255,fl>>8&255,fl&255,...p);
+  const n=ch.length,mat=[65536,0,0,0,65536,0,0,0,1073741824].flatMap(u32),ftyp=box('ftyp',str('isom'),u32(512),str('isom'),str('iso2'),str('avc1'),str('mp41'));
+  let ms=8;for(const c of ch)ms+=c.d.length;const off=ftyp.length+8;
+  const avc1=box('avc1',z(6),u16(1),z(16),u16(w),u16(h),u32(0x480000),u32(0x480000),u32(0),u16(1),z(32),u16(24),u16(0xffff),box('avcC',Array.from(desc)));
+  const keys=[];ch.forEach((c,i)=>{if(c.k)keys.push(...u32(i+1));});
+  const stbl=box('stbl',full('stsd',0,u32(1),avc1),full('stts',0,u32(1),u32(n),u32(1)),full('stss',0,u32(keys.length/4),keys),full('stsc',0,u32(1),u32(1),u32(n),u32(1)),full('stsz',0,u32(0),u32(n),ch.flatMap(c=>u32(c.d.length))),full('stco',0,u32(1),u32(off)));
+  const minf=box('minf',full('vmhd',1,z(8)),box('dinf',full('dref',0,u32(1),full('url ',1))),stbl);
+  const mdia=box('mdia',full('mdhd',0,u32(0),u32(0),u32(fps),u32(n),u16(0x55c4),u16(0)),full('hdlr',0,u32(0),str('vide'),z(12),str('Video'),[0]),minf);
+  const tkhd=full('tkhd',3,u32(0),u32(0),u32(1),u32(0),u32(n),z(8),u16(0),u16(0),u16(0),u16(0),mat,u32(w*65536),u32(h*65536));
+  const moov=box('moov',full('mvhd',0,u32(0),u32(0),u32(fps),u32(n),u32(65536),u16(256),u16(0),z(8),mat,z(24),u32(2)),box('trak',tkhd,mdia));
+  return new Blob([new Uint8Array(ftyp),new Uint8Array([...u32(ms),...str('mdat')]),...ch.map(c=>c.d),new Uint8Array(moov)],{type:'video/mp4'});}
+async function exportMp4(fps,n,bg){const st=m=>{$('#xStat').textContent=m;},nap=ms=>new Promise(r=>setTimeout(r,ms));
+  if(!window.VideoEncoder){st('MP4 needs WebCodecs (Chrome, Edge, or a recent Safari). Try WebM instead.');return;}
+  const sc=expScale(),w=Math.max(2,Math.round(S.w*sc/2)*2),h=Math.max(2,Math.round(S.h*sc/2)*2),br=expBr(w,h,fps),px=w*h,lvl=px<=2088960?'640028':px<=5652480?'640032':'640033';
+  let cfg=null;for(const codec of['avc1.'+lvl,'avc1.640034','avc1.4d0033']){const c={codec,width:w,height:h,bitrate:br,framerate:fps,avc:{format:'avc'}};try{if((await VideoEncoder.isConfigSupported(c)).supported){cfg=c;break;}}catch(e){}}
+  if(!cfg){st('This browser cannot encode H.264 at '+w+'×'+h+'. Pick a lower resolution or use WebM.');return;}
+  const chunks=[];let desc=null,err=null;
+  const enc=new VideoEncoder({output:(ch,meta)=>{const u=new Uint8Array(ch.byteLength);ch.copyTo(u);chunks.push({d:u,k:ch.type==='key'});const x=meta&&meta.decoderConfig&&meta.decoderConfig.description;if(x&&!desc)desc=new Uint8Array(ArrayBuffer.isView(x)?x.buffer.slice(x.byteOffset,x.byteOffset+x.byteLength):x.slice(0));},error:e=>{err=e;}});
+  enc.configure(cfg);const cv=mkCanvas(w,h),rs=w/S.w;
+  for(let i=0;i<n;i++){if(err)throw err;renderFrame(cv,i/fps,rs,bg);const f=new VideoFrame(cv,{timestamp:Math.round(i*1e6/fps),duration:Math.round(1e6/fps)});
+    enc.encode(f,{keyFrame:i%Math.max(1,Math.round(fps*2))===0});f.close();while(enc.encodeQueueSize>6)await nap(2);if(i%3===0){st('Encoding frame '+(i+1)+' / '+n);await nap(0);}}
+  await enc.flush();enc.close();if(err)throw err;if(!desc)throw new Error('encoder returned no codec info');
+  st('Packing MP4…');await saveFile('tweenslop-'+w+'x'+h+'-'+fps+'fps.mp4',mp4Mux(chunks,desc,w,h,fps));}
+const expFps=()=>{const v=$('#xFps').value;return v==='p'?S.anim.fps:+v;};
+const expBr=(w,h,fps)=>$('#xBr').value==='auto'?clamp(w*h*fps*.1,2e6,80e6):+$('#xBr').value*1e6;
 
 /* ---- FX panel (submenus live on the left rail, one per category) ---- */
 const toolCat=()=>({fxkey:'key',fxmotion:'motion',fxdistort:'distort',fxcolor:'color'})[S.tool]||null;
@@ -2075,7 +2152,7 @@ function renderFx(){if(S.step!=='fx')return;const cat=toolCat(),L=fxList().filte
   $('#fxList').innerHTML=L.length?L.map(e=>'<div style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-fxon="'+e.id+'"'+(e.on?' checked':'')+' aria-label="Enabled"><button class="btn sm ghost grow" data-fxsel="'+e.id+'" style="justify-content:flex-start;'+(e.id===S.sel.fx?'color:var(--accent);font-weight:700':'')+'">'+FXDEF[e.type].name+' <small style="color:var(--dim)">'+(e.target==='all'?'scene':esc((getPart(e.target)||{name:'?'}).name))+'</small></button><button class="btn sm ghost ib danger" data-fxdel="'+e.id+'" aria-label="Delete effect">'+svgIcon('trash')+'</button></div>').join(''):'<div class="empty-note">Nothing here yet.</div>';
   const e=L.find(x=>x.id===S.sel.fx);if(!e){$('#fxSet').innerHTML='<div class="empty-note">Add or pick an effect to edit it.</div>';return;}
   const d=FXDEF[e.type],F='style="grid-template-columns:96px 1fr"';
-  $('#fxSet').innerHTML='<b>'+d.name+'</b><div class="field" '+F+'><label>Applies to</label><select data-fxtarget><option value="all"'+(e.target==='all'?' selected':'')+'>Whole scene</option>'+S.parts.map(p=>'<option value="'+p.id+'"'+(e.target===p.id?' selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select></div>'+
+  $('#fxSet').innerHTML='<b>'+d.name+'</b>'+(d.scene?'<div class="empty-note">Applies to the whole scene. Samples = sub-frames averaged, shutter = how long the virtual shutter stays open.</div>':'<div class="field" '+F+'><label>Applies to</label><select data-fxtarget><option value="all"'+(e.target==='all'?' selected':'')+'>Whole scene</option>'+S.parts.map(p=>'<option value="'+p.id+'"'+(e.target===p.id?' selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select></div>')+
    d.p.map(q=>q[2]==='color'?'<div class="field" '+F+'><label>'+q[1]+'</label><input type="color" data-fxp="'+q[0]+'" value="'+e.p[q[0]]+'" style="width:100%;height:28px;padding:0"></div>'+(e.type==='chroma'?'<button class="btn sm" data-fxpick>Pick colour from image</button>':''):
     '<div class="field" '+F+'><label>'+q[1]+' <small>'+e.p[q[0]]+q[6]+'</small></label><input type="range" data-fxp="'+q[0]+'" data-u="'+q[6]+'" min="'+q[2]+'" max="'+q[3]+'" step="'+q[4]+'" value="'+e.p[q[0]]+'" style="width:100%;accent-color:var(--accent)"></div>').join('')+
    '<b style="margin-top:6px">Intensity graph</b><canvas id="fxGp" width="260" height="70" style="width:100%;height:70px;border:1px solid var(--line);border-radius:8px;background:var(--bg)"></canvas>'+
@@ -2106,7 +2183,7 @@ const TUT = [
   { t: '1. Cut the character into parts', icons: ['lasso', 'poly', 'brush', 'wand', 'eraser'], p: ['Press <b>New part</b>, then trace the head, an arm, a leg, the body with the Lasso, Polygon, Brush or Wand. One part for each piece that should move on its own.', 'Use <b>Subtract</b> to clean the edges. Turn on <b>Preview cutouts</b> to see a part by itself.', 'Parts higher in the list sit in front of the ones below.'] },
   { t: '2. Add bones', icons: ['bone', 'select'], p: ['Pick the <b>Bone</b> tool and drag from where a part pivots (the shoulder) to where it ends (the hand).', 'Start the next bone on the end of one that exists, and it becomes a child that follows it (shoulder, then elbow, then wrist).', 'Choose which bone each part follows under <b>Moves with</b>, or press <b>Auto-bind</b> to match them by distance. <b>Soft bend</b> smooths the joints.'] },
   { t: '3. Animate with keyframes', icons: ['move', 'rotate', 'size', 'expand', 'liquify'], p: ['Pick Move, Rotate, Size, Expand or Liquify and drag a part or bone. Every change makes a keyframe at the playhead.', 'Click the timeline ruler to jump to another moment, then pose again. Tweenslop fills in the movement between keys.', 'Select a key (a diamond), then choose its <b>easing</b> next to the timeline: smooth, overshoot, bounce, jelly, snap. Press <b>Space</b> to play.'] },
-  { t: '4. FX and custom graphs', icons: ['wand', 'move', 'liquify', 'brush'], p: ['The <b>FX</b> step has a menu for each kind of effect on the left: <b>Key</b> (chroma and luma key), <b>Motion</b> (shake, wobble, pulse, float), <b>Distort</b> (wave, RGB split, pixelate, blur, glitch) and <b>Colour</b> (hue, tint, adjust, fade, glow).', 'Every effect has an <b>intensity graph</b>. Click <b>Edit graph</b> to add as many points as you want and shape when the effect is strong or off.', 'Under Animate, select a key and press <b>Edit graph</b> by the easing box to draw your own easing curve between two keys.'] },
+  { t: '4. FX and custom graphs', icons: ['wand', 'move', 'liquify', 'brush'], p: ['The <b>FX</b> step has a menu for each kind of effect on the left: <b>Key</b> (chroma and luma key), <b>Motion</b> (shake, wobble, pulse, float), <b>Distort</b> (wave, RGB split, pixelate, blur, glitch) and <b>Colour</b> (hue, tint, adjust, fade, glow, posterize, invert, vignette, outline, drop shadow).', 'Every effect has an <b>intensity graph</b>. Click <b>Edit graph</b> to add as many points as you want and shape when the effect is strong or off.', 'Under Animate, select a key and press <b>Edit graph</b> by the easing box to draw your own easing curve between two keys.'] },
   { t: 'Export, shortcuts, done', icons: ['download'], p: ['<b>Export</b> saves an animated GIF, a WebM video, a sprite sheet, one PNG frame, or a project file you can open again later with <b>Open project</b>.', '<b>Space</b> play, <b>K</b> key, <b>← →</b> step a frame, <b>1 2 3 4</b> switch steps, <b>Ctrl+Z</b> undo, <b>F</b> fit, <b>H</b> pan, mouse wheel zoom.', 'Reopen this guide any time with the <b>?</b> button at the top.'] }
 ];
 const tut = document.createElement('div'); tut.id = 'tut'; tut.hidden = true; tut.className = 'modal-back';
