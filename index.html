@@ -391,7 +391,9 @@ function chanAt(keys, t) {
   const u = easeK(a)((t - a.t) / (b.t - a.t));
   return { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), r: lerp(a.r, b.r, u), sx: lerp(a.sx, b.sx, u), sy: lerp(a.sy, b.sy, u) };
 }
-const boneChan = (id, t) => chanAt(S.anim.bones[id] && S.anim.bones[id].keys, t);
+var DR = null, LASTDR = null;
+const boneChan0 = (id, t) => chanAt(S.anim.bones[id] && S.anim.bones[id].keys, t);
+function boneChan(id, t) { const c = boneChan0(id, t), d = DR && DR.map[id]; return d ? { ...c, x: c.x + d.x, y: c.y + d.y, r: c.r + d.r, sx: c.sx * (1 + d.sx), sy: c.sy * (1 + d.sy) } : c; }
 function findKey(keys, t) { if (!keys) return -1; const tol = 0.5 / S.anim.fps; for (let i = 0; i < keys.length; i++) if (Math.abs(keys[i].t - t) < tol) return i; return -1; }
 
 /* Write a pose for a bone at time t, creating keys as needed (auto-key). */
@@ -471,14 +473,14 @@ const H = { stack: [], idx: 0, last: null };
 function captureState() {
   return {
     bones: S.bones.map(b => ({ ...b })),
-    parts: S.parts.map(p => ({ id: p.id, name: p.name, visible: p.visible, bone: p.bone, soft: p.soft })),
+    parts: S.parts.map(p => ({ id: p.id, name: p.name, visible: p.visible, bone: p.bone, soft: p.soft, bones: (p.bones || []).slice(), sm: p.sm, auto: p.auto !== false })),
     anim: structuredClone(S.anim)
   };
 }
 function restoreState(st) {
   S.bones = st.bones.map(b => ({ ...b }));
   rebuildSkeleton();
-  S.parts = st.parts.map(m => { const p = getPart(m.id); p.name = m.name; p.visible = m.visible; p.bone = m.bone; p.soft = m.soft; return p; });
+  S.parts = st.parts.map(m => { const p = getPart(m.id); p.name = m.name; p.visible = m.visible; p.bone = m.bone; p.soft = m.soft; p.bones = (m.bones || []).slice(); p.sm = m.sm || 8; p.auto = m.auto !== false; p._swVer = 0; return p; });
   S.anim = structuredClone(st.anim);
   if (S.sel.part && !getPart(S.sel.part) || (S.sel.part && !S.parts.includes(getPart(S.sel.part)))) S.sel.part = null;
   if (S.sel.bone && !getBone(S.sel.bone)) S.sel.bone = null;
@@ -525,7 +527,7 @@ let _hueN = 0;
 function newPart(name) {
   const id = uid('p');
   const p = {
-    id, name: name || 'Part ' + (S.parts.length + 1), visible: true, bone: null, soft: false,
+    id, name: name || 'Part ' + (S.parts.length + 1), visible: true, bone: null, soft: false, bones: [], sm: 8,
     mask: mkCanvas(S.w, S.h), hue: PART_HUES[(_hueN++) % PART_HUES.length],
     tex: null, alpha: null, bx: 0, by: 0, bw: 0, bh: 0, nx: 1, ny: 1, cellOn: null,
     dirty: false, tint: null, tintDirty: true, _swVer: 0
@@ -609,24 +611,22 @@ function autoBind(onlyUnbound) {
 
 /* ================= soft skinning weights ================= */
 function ensureSoft(p) {
-  if (p._swVer === S.skelVer && p.si0) return;
-  p._swVer = S.skelVer;
+  const key = S.skelVer + '|' + (p.bones || []).join(',') + '|' + p.sm + '|' + partBoneSet(p).join(',') + '|' + p.bw + 'x' + p.bh;
+  if (p._swVer === S.skelVer && p._swKey === key && p.si) return;
+  p._swVer = S.skelVer; p._swKey = key;
   const nb = getBone(p.bone);
-  const cand = [nb]; if (nb.parent) cand.push(getBone(nb.parent));
-  for (const c of boneChildren(nb.id)) cand.push(c);
-  const n = (p.nx + 1) * (p.ny + 1);
+  let cand;
+  const extra = [...new Set([...(p.bones || []), ...partBoneSet(p)])].filter(id => id !== nb.id);
+  if (extra.length) cand = [nb, ...extra.map(getBone).filter(Boolean)];
+  else { cand = [nb]; if (nb.parent) cand.push(getBone(nb.parent)); for (const c of boneChildren(nb.id)) cand.push(c); }
+  const n = (p.nx + 1) * (p.ny + 1), K = 3, off = Math.max(p.sm || 8, 0.1 * Math.max(p.bw, p.bh));
   p.cand = cand.map(b => b.id);
-  p.si0 = new Int16Array(n); p.si1 = new Int16Array(n); p.sw0 = new Float32Array(n);
+  p.si = new Int16Array(n * K); p.sw = new Float32Array(n * K);
   for (let j = 0; j <= p.ny; j++) for (let i = 0; i <= p.nx; i++) {
     const x = p.bx + i * p.bw / p.nx, y = p.by + j * p.bh / p.ny, k = j * (p.nx + 1) + i;
-    let a = -1, b = -1, da = 1e12, db = 1e12;
-    cand.forEach((bn, q) => {
-      const d = distSeg(x, y, bn.hx, bn.hy, bn.tx, bn.ty);
-      if (d < da) { b = a; db = da; a = q; da = d; } else if (d < db) { b = q; db = d; }
-    });
-    if (b < 0) { p.si0[k] = a; p.si1[k] = a; p.sw0[k] = 1; continue; }
-    const wa = 1 / Math.pow(da + 6, 3), wb = 1 / Math.pow(db + 6, 3);
-    p.si0[k] = a; p.si1[k] = b; p.sw0[k] = wa / (wa + wb);
+    const ds = cand.map((bn, q) => [distSeg(x, y, bn.hx, bn.hy, bn.tx, bn.ty), q]).sort((a, b) => a[0] - b[0]).slice(0, K);
+    let tot = 0; const ws = ds.map(d => { const w = 1 / Math.pow(d[0] + off, 3); tot += w; return w; });
+    ds.forEach((d, q) => { p.si[k * K + q] = d[1]; p.sw[k * K + q] = ws[q] / tot; });
   }
 }
 
@@ -654,7 +654,7 @@ function drawPart(ctx, p, pose, f, px) {
   const b = p.bone ? getBone(p.bone) : null;
   const M = b ? pose.M[b.id] : MI;
   const hasF = f && anyNonZero(f);
-  const soft = p.soft && b;
+  const soft = (p.soft || (p.bones && p.bones.length) || partBoneSet(p).length) && b && !p._lk;
   if (!soft && !hasF) {
     ctx.save(); ctx.transform(M[0], M[1], M[2], M[3], M[4], M[5]); ctx.drawImage(p.tex, p.bx, p.by); ctx.restore(); return;
   }
@@ -666,9 +666,9 @@ function drawPart(ctx, p, pose, f, px) {
     const k = j * (nx + 1) + i;
     const x = p.bx + i * p.bw / nx + (hasF ? f[2 * k] : 0), y = p.by + j * p.bh / ny + (hasF ? f[2 * k + 1] : 0);
     if (soft) {
-      const m0 = pose.M[p.cand[p.si0[k]]], m1 = pose.M[p.cand[p.si1[k]]], w0 = p.sw0[k];
-      VX[k] = w0 * (m0[0] * x + m0[2] * y + m0[4]) + (1 - w0) * (m1[0] * x + m1[2] * y + m1[4]);
-      VY[k] = w0 * (m0[1] * x + m0[3] * y + m0[5]) + (1 - w0) * (m1[1] * x + m1[3] * y + m1[5]);
+      let X = 0, Y = 0;
+      for (let q = 0; q < 3; q++) { const w = p.sw[3 * k + q]; if (!w) continue; const m = pose.M[p.cand[p.si[3 * k + q]]]; X += w * (m[0] * x + m[2] * y + m[4]); Y += w * (m[1] * x + m[3] * y + m[5]); }
+      VX[k] = X; VY[k] = Y;
     } else { VX[k] = M[0] * x + M[2] * y + M[4]; VY[k] = M[1] * x + M[3] * y + M[5]; }
   }
   const pad = 0.8 / Math.max(px, 0.05), img = p.tex;
@@ -1365,13 +1365,30 @@ function renderPartOpts() {
   } else {
     h += '<div class="field"><label>Moves with</label><select id="selBind"><option value="">Nothing (fixed)</option>' + S.order.map(b => '<option value="' + b.id + '"' + (p.bone === b.id ? ' selected' : '') + '>' + esc(b.name) + '</option>').join('') + '</select></div>';
     h += '<label class="row" style="color:var(--dim);font-size:12.5px"><input type="checkbox" id="chkSoft"' + (p.soft ? ' checked' : '') + (p.bone ? '' : ' disabled') + '>Soft bend near joints</label>';
+    if (p.bone) {
+      h += '<label class="row" style="color:var(--dim);font-size:12.5px"><input type="checkbox" id="chkAuto"' + (p.auto !== false ? ' checked' : '') + '>Bend with bones inside this part</label>';
+      const others = S.order.filter(b => b.id !== p.bone);
+      h += '<div class="field"><label>Also bends with (pick several)</label><div style="display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto">' + (others.map(b => '<label class="row" style="font-size:12.5px;color:var(--dim)"><input type="checkbox" data-xb="' + b.id + '"' + ((p.bones || []).includes(b.id) ? ' checked' : '') + '>' + esc(b.name) + '</label>').join('') || '<span class="empty-note">Draw more bones first.</span>') + '</div></div>'
+        + '<div class="row"><button class="btn sm" id="btnXbAuto">Pick bones under part</button><button class="btn sm ghost" id="btnXbNone">Clear</button></div>'
+        + '<label class="row" style="font-size:12.5px;color:var(--dim)">Bend smoothness <input type="range" id="rngSm" min="2" max="80" value="' + (p.sm || 8) + '" style="accent-color:var(--accent)"></label>';
+    }
   }
   el.innerHTML = h;
 }
-$('#partOpts').addEventListener('click', e => { const b = e.target.closest('[data-ma]'); if (b) maskOp(b.dataset.ma, 2); });
+$('#partOpts').addEventListener('click', e => {
+  const p0 = selPart();
+  if (p0 && (e.target.id === 'btnXbAuto' || e.target.id === 'btnXbNone')) {
+    if (e.target.id === 'btnXbNone') p0.bones = [];
+    else { const mx = p0.bw * .1, my = p0.bh * .1, inb = (x, y) => x >= p0.bx - mx && x <= p0.bx + p0.bw + mx && y >= p0.by - my && y <= p0.by + p0.bh + my;
+      p0.bones = S.order.filter(b => b.id !== p0.bone && (inb(b.hx, b.hy) || inb(b.tx, b.ty) || inb((b.hx + b.tx) / 2, (b.hy + b.ty) / 2))).map(b => b.id); }
+    p0._swVer = 0; commit(); refreshAll(); requestDraw(); return;
+  } const b = e.target.closest('[data-ma]'); if (b) maskOp(b.dataset.ma, 2); });
 $('#partOpts').addEventListener('change', e => {
   const p = selPart(); if (!p) return;
   if (e.target.id === 'selBind') { p.bone = e.target.value || null; p._swVer = 0; commit(); refreshAll(); }
+  if (e.target.id === 'chkAuto') { p.auto = e.target.checked; p._swVer = 0; commit(); requestDraw(); }
+  if (e.target.dataset.xb) { const id = e.target.dataset.xb, a = p.bones || (p.bones = []); const k = a.indexOf(id); if (e.target.checked && k < 0) a.push(id); if (!e.target.checked && k >= 0) a.splice(k, 1); p._swVer = 0; commit(); requestDraw(); }
+  if (e.target.id === 'rngSm') { p.sm = +e.target.value; p._swVer = 0; commit(); requestDraw(); }
   if (e.target.id === 'chkSoft') { p.soft = e.target.checked; p._swVer = 0; commit(); requestDraw(); }
 });
 
@@ -1741,7 +1758,7 @@ $('#btnSample2').onclick = loadSample;
 function serializeProject() {
   const liq = {}; for (const id in S.anim.liq) liq[id] = { keys: S.anim.liq[id].keys.map(k => ({ t: k.t, e: k.e, f: Array.from(k.f, v => Math.round(v * 100) / 100), c: k.c, cm: k.cm, cn: k.cn })) };
   return JSON.stringify({ app: 'tweenslop', v: 1, w: S.w, h: S.h, img: S.img.toDataURL('image/png'),
-    parts: S.parts.map(p => ({ id: p.id, name: p.name, visible: p.visible, bone: p.bone, soft: p.soft, hue: p.hue, mask: p.mask.toDataURL('image/png') })),
+    parts: S.parts.map(p => ({ id: p.id, name: p.name, visible: p.visible, bone: p.bone, soft: p.soft, bones: p.bones || [], sm: p.sm || 8, auto: p.auto !== false, hue: p.hue, mask: p.mask.toDataURL('image/png') })),
     bones: S.bones, anim: { fps: S.anim.fps, dur: S.anim.dur, loop: S.anim.loop, bones: S.anim.bones, liq, fx: S.anim.fx || [] } });
 }
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
@@ -1751,7 +1768,7 @@ async function loadProject(o) {
   setupDoc(c); let mx = 0;
   for (const m of o.parts) {
     const p = newPart(m.name); S.partMap.delete(p.id); p.id = m.id; S.partMap.set(p.id, p);
-    Object.assign(p, { visible: m.visible, bone: m.bone, soft: m.soft, hue: m.hue });
+    Object.assign(p, { visible: m.visible, bone: m.bone, soft: m.soft, bones: m.bones || [], sm: m.sm || 8, auto: m.auto !== false, hue: m.hue });
     p.mask.getContext('2d').drawImage(await loadImg(m.mask), 0, 0); mx = Math.max(mx, parseInt(m.id.slice(1)) || 0);
   }
   S.bones = o.bones; for (const b of S.bones) mx = Math.max(mx, parseInt(b.id.slice(1)) || 0);
@@ -2440,30 +2457,30 @@ function withDoc(D,fn){const sv={};for(const k of DOCK){sv[k]=S[k];S[k]=D[k];}tr
 async function buildDoc(o){const im=await loadImg(o.img),masks=await Promise.all(o.parts.map(m=>loadImg(m.mask)));
  const D={w:o.w,h:o.h,img:null,imgData:null,parts:[],partMap:new Map(),bones:[],boneMap:new Map(),order:[],skelVer:1,anim:{fps:24,dur:2,loop:true,bones:{},liq:{},fx:[]}};
  withDoc(D,()=>{const c=mkCanvas(o.w,o.h);c.getContext('2d').drawImage(im,0,0);S.img=c;
-  o.parts.forEach((m,i)=>{const p=newPart(m.name);S.partMap.delete(p.id);p.id=m.id;S.partMap.set(p.id,p);Object.assign(p,{visible:m.visible,bone:m.bone,soft:m.soft,hue:m.hue});p.mask.getContext('2d').drawImage(masks[i],0,0);});
+  o.parts.forEach((m,i)=>{const p=newPart(m.name);S.partMap.delete(p.id);p.id=m.id;S.partMap.set(p.id,p);Object.assign(p,{visible:m.visible,bone:m.bone,soft:m.soft,bones:m.bones||[],sm:m.sm||8,auto:m.auto!==false,hue:m.hue});p.mask.getContext('2d').drawImage(masks[i],0,0);});
   S.bones=JSON.parse(JSON.stringify(o.bones));rebuildSkeleton();
   S.anim={fps:o.anim.fps,dur:o.anim.dur,loop:o.anim.loop,bones:o.anim.bones,liq:{},fx:JSON.parse(JSON.stringify(o.anim.fx||[]))};
   for(const id in o.anim.liq)S.anim.liq[id]={keys:o.anim.liq[id].keys.map(k=>({t:k.t,e:k.e,f:Float32Array.from(k.f),c:k.c,cm:k.cm,cn:k.cn}))};
   ensureAllParts();});return D;}
 const mkChar=nm=>({id:uid('h'),name:nm,doc:null,x:S.w/2,y:S.h/2,sc:1,rot:0,op:1,flip:false,lock:'',vis:true});
-const activeChar=()=>S.animo.chars.find(c=>c.id===S.animo.cur);
-{const _na3=newAnimo;newAnimo=function(){return Object.assign(_na3(),{chars:[],cur:null});};
- const _su5=setupDoc;setupDoc=function(c){_su5(c);const A=S.animo;A.chars=[mkChar('Char 1')];A.cur=A.chars[0].id;};}
+const activeChar=()=>S.animo.chars.find(c=>c.id===S.animo.ach);
+{const _na3=newAnimo;newAnimo=function(){return Object.assign(_na3(),{chars:[],ach:null});};
+ const _su5=setupDoc;setupDoc=function(c){_su5(c);const A=S.animo;A.chars=[mkChar('Char 1')];A.ach=A.chars[0].id;};}
 S.animo.chars=[];
 const charMat=(c,w,h)=>mmul(mmul(mmul(mT(c.x,c.y),mR((c.rot||0)*Math.PI/180)),mS(c.flip?-c.sc:c.sc,c.sc)),mT(-w/2,-h/2));
 function lockDelta(ch,pose,t){if(!ch.lock)return null;const[ci,bi]=ch.lock.split(':'),tc=S.animo.chars.find(c=>c.id===ci);if(!tc||tc===ch)return null;
- let M,w,h;if(tc.id===S.animo.cur){M=pose.M[bi];w=S.w;h=S.h;}else{M=withDoc(tc.doc,()=>computePose(t,false)).M[bi];w=tc.doc.w;h=tc.doc.h;}
+ let M,w,h;if(tc.id===S.animo.ach){M=pose.M[bi];w=S.w;h=S.h;}else{M=withDoc(tc.doc,()=>computePose(t,false)).M[bi];w=tc.doc.w;h=tc.doc.h;}
  if(!M)return null;const X=charMat(tc,w,h);return mmul(mmul(X,M),minv(X));}
 function drawAll(ctx,pose,t,rest,px,base){const A=S.animo;if(rest||!A.chars.length){base(ctx,pose,t,rest,px);return;}
- for(const ch of A.chars){if(!ch.vis)continue;const act=ch.id===A.cur,D=act?{w:S.w,h:S.h}:ch.doc;if(!D)continue;ctx.save();ctx.globalAlpha*=ch.op;
+ for(const ch of A.chars){if(!ch.vis)continue;const act=ch.id===A.ach,D=act?{w:S.w,h:S.h}:ch.doc;if(!D)continue;ctx.save();ctx.globalAlpha*=ch.op;
   const dl=lockDelta(ch,pose,t);if(dl)ctx.transform(dl[0],dl[1],dl[2],dl[3],dl[4],dl[5]);const X=charMat(ch,D.w,D.h);ctx.transform(X[0],X[1],X[2],X[3],X[4],X[5]);
   try{if(act)base(ctx,pose,t,false,px*ch.sc);else withDoc(ch.doc,()=>base(ctx,computePose(t,false),t,false,px*ch.sc));}catch(e){}ctx.restore();}}
 {const ti=toImg;toImg=function(cx,cy){let p=ti(cx,cy);if(S.step==='animate'||S.step==='fx'){const a=activeChar();if(a&&S.w)p=mapp(minv(charMat(a,S.w,S.h)),p[0],p[1]);}return p;};
  const ts=toScr;toScr=function(x,y){if(S.step==='animate'){const a=activeChar();if(a&&S.w){const q=mapp(charMat(a,S.w,S.h),x,y);x=q[0];y=q[1];}}return ts(x,y);};}
-function activate(id){const A=S.animo,c=A.chars.find(x=>x.id===id);if(!c||id===A.cur||!c.doc&&false)return;if(S.playing)togglePlay(false);
+function activate(id){const A=S.animo,c=A.chars.find(x=>x.id===id);if(!c||id===A.ach||!c.doc&&false)return;if(S.playing)togglePlay(false);
  const a=activeChar();if(a){const D={};for(const k of DOCK)D[k]=S[k];a.doc=D;}
- for(const k of DOCK)S[k]=c.doc[k];A.cur=id;S.sel={part:null,bone:null,key:null};poseFor=null;try{CUT.pts=[];CUT.part=null;RIG.tmp=null;}catch(e){}resetHistory();refreshAll();}
-function delChar(i){const A=S.animo;if(A.chars.length<2){toast('A project needs at least one character.');return;}const c=A.chars[i];if(c.id===A.cur)activate(A.chars[i?0:1].id);A.chars.splice(A.chars.findIndex(x=>x.id===c.id),1);refreshAll();}
+ for(const k of DOCK)S[k]=c.doc[k];A.ach=id;S.sel={part:null,bone:null,key:null};poseFor=null;try{CUT.pts=[];CUT.part=null;RIG.tmp=null;}catch(e){}resetHistory();refreshAll();}
+function delChar(i){const A=S.animo;if(A.chars.length<2){toast('A project needs at least one character.');return;}const c=A.chars[i];if(c.id===A.ach)activate(A.chars[i?0:1].id);A.chars.splice(A.chars.findIndex(x=>x.id===c.id),1);refreshAll();}
 const _cf=document.createElement('input');_cf.type='file';_cf.accept='.tsproj,.json';_cf.multiple=true;_cf.className='sr';_cf.tabIndex=-1;document.body.appendChild(_cf);
 _cf.onchange=async e=>{const fs=[...e.target.files];e.target.value='';let n=0,last=null;
  for(const f of fs){try{const o=JSON.parse(await f.text());if(!o||o.app!=='tweenslop')throw 0;
@@ -2472,8 +2489,8 @@ _cf.onchange=async e=>{const fs=[...e.target.files];e.target.value='';let n=0,la
  if(last)activate(last.id);else refreshAll();if(n)toast(n+' character'+(n>1?'s':'')+' added. Click a character to edit it.');};
 $('#side').insertAdjacentHTML('afterbegin','<section class="sec" id="secChars"><h3>Characters <span class="grow"></span><button class="btn sm primary" data-ch="add">+ Add .tsproj</button></h3><div class="col" id="charBody"></div></section>');
 function renderChars(){const el=$('#charBody');if(!el)return;const A=S.animo,L=A.chars,ni=(k,l,v,st)=>'<label style="display:flex;gap:3px;align-items:center">'+l+'<input type="number" data-chp="'+k+'" value="'+v+'" step="'+st+'" style="width:54px"></label>';
- el.innerHTML=(L.length?'':'<div class="empty-note">Open an image or a .tsproj to start. Add more .tsproj files to make Char 2, Char 3 and so on.</div>')+L.map((c,i)=>{const act=c.id===A.cur,ps=act?S.parts:(c.doc?c.doc.parts:[]);
-  const locks=L.filter(o=>o!==c).map(o=>'<optgroup label="'+esc(o.name)+'">'+(o.id===A.cur?S.bones:(o.doc?o.doc.bones:[])).map(b=>'<option value="'+o.id+':'+b.id+'"'+(c.lock===o.id+':'+b.id?' selected':'')+'>'+esc(b.name)+'</option>').join('')+'</optgroup>').join('');
+ el.innerHTML=(L.length?'':'<div class="empty-note">Open an image or a .tsproj to start. Add more .tsproj files to make Char 2, Char 3 and so on.</div>')+L.map((c,i)=>{const act=c.id===A.ach,ps=act?S.parts:(c.doc?c.doc.parts:[]);
+  const locks=L.filter(o=>o!==c).map(o=>'<optgroup label="'+esc(o.name)+'">'+(o.id===A.ach?S.bones:(o.doc?o.doc.bones:[])).map(b=>'<option value="'+o.id+':'+b.id+'"'+(c.lock===o.id+':'+b.id?' selected':'')+'>'+esc(b.name)+'</option>').join('')+'</optgroup>').join('');
   return '<div data-ci="'+i+'" style="border:1px solid '+(act?'var(--accent)':'var(--line)')+';border-radius:8px;padding:4px 6px"><div style="display:flex;gap:5px;align-items:center"><input type="checkbox" data-chp="vis"'+(c.vis?' checked':'')+' title="Show"><button class="btn sm ghost" data-ch="sel" data-i="'+i+'" style="flex:1;justify-content:flex-start;font-weight:700;overflow:hidden">'+(act?'&#9679; ':'&#9675; ')+esc(c.name)+'</button><button class="btn sm ghost" data-ch="up" data-i="'+i+'" title="Move behind">&uarr;</button><button class="btn sm ghost" data-ch="dn" data-i="'+i+'" title="Move in front">&darr;</button><button class="btn sm ghost danger" data-ch="del" data-i="'+i+'">&times;</button></div>'
   +'<div style="margin:3px 0 0 6px">'+ps.map(p=>'<div data-ch="part" data-i="'+i+'" data-pid="'+p.id+'" style="display:flex;gap:6px;align-items:center;cursor:pointer;padding:1px 3px;font-size:12px;border-radius:4px'+(act&&S.sel.part===p.id?';background:var(--panel2)':'')+'"><span style="width:9px;height:9px;border-radius:50%;background:hsl('+p.hue+',70%,55%)"></span>'+esc(p.name)+'</div>').join('')+(ps.length?'':'<div style="font-size:11.5px;color:var(--dim)">no parts yet</div>')+'</div>'
   +'<details'+(c.open?' open':'')+'><summary style="font-size:12px;color:var(--dim);cursor:pointer;margin-top:3px">Settings</summary><div style="display:flex;flex-wrap:wrap;gap:5px 8px;font-size:11.5px;color:var(--dim);padding-top:4px"><label style="display:flex;gap:3px;width:100%;align-items:center">Name<input data-chp="name" value="'+esc(c.name)+'" style="flex:1;min-width:0"></label>'
@@ -2493,11 +2510,11 @@ $('#secChars').addEventListener('toggle',e=>{const h=e.target.closest&&e.target.
 {const _rf3=refreshAll;refreshAll=function(){_rf3();renderChars();};
  const _rp3=refreshParts;refreshParts=function(){_rp3();renderChars();};
  const _sp3=serializeProject;serializeProject=function(){const o=JSON.parse(_sp3()),A=S.animo;if(!o.animo)return JSON.stringify(o);o.animo.sw=A.sw;o.animo.sh=A.sh;
-  o.animo.chars=A.chars.map(c=>({id:c.id,name:c.name,x:c.x,y:c.y,sc:c.sc,rot:c.rot,op:c.op,flip:c.flip,lock:c.lock,vis:c.vis,active:c.id===A.cur,src:c.id===A.cur?null:withDoc(c.doc,()=>JSON.parse(SER0()))}));return JSON.stringify(o);};
+  o.animo.chars=A.chars.map(c=>({id:c.id,name:c.name,x:c.x,y:c.y,sc:c.sc,rot:c.rot,op:c.op,flip:c.flip,lock:c.lock,vis:c.vis,active:c.id===A.ach,src:c.id===A.ach?null:withDoc(c.doc,()=>JSON.parse(SER0()))}));return JSON.stringify(o);};
  const _lp3=loadProject;loadProject=async function(o){await _lp3(o);const a=o.animo,A=S.animo;
   if(a&&a.chars&&a.chars.length){if(a.sw){A.sw=a.sw;A.sh=a.sh;}const live=A.chars[0],hasAct=a.chars.some(c=>c.active),out=hasAct?[]:[live];
    for(const c of a.chars){const d=Object.assign(mkChar(c.name||'Char'),c);delete d.active;delete d.src;
-    if(c.active){Object.assign(live,d);out.push(live);A.cur=live.id;}else{try{d.doc=await buildDoc(c.src);out.push(d);}catch(e){}}}
+    if(c.active){Object.assign(live,d);out.push(live);A.ach=live.id;}else{try{d.doc=await buildDoc(c.src);out.push(d);}catch(e){}}}
    A.chars=out;}
   refreshAll();};}
 /* -- more FX -- */
@@ -2534,6 +2551,53 @@ Object.assign(FXOP,{
   c.setTransform(1,0,0,1,0,0);c.globalAlpha=1;c.globalCompositeOperation='source-over';},
  snow(c,p,m,s){const W=s.W,H=s.H;c.fillStyle=p.color;c.globalAlpha=clamp(m,0,1)*.9;for(let i=0;i<p.n;i++){const sp=.4+hs(i*1.7)*.8,x=((hs(i*3.1)*W+Math.sin(s.t*2+i)*8*s.sc)%W+W)%W,y=((hs(i*7.7)*H+s.t*p.fall*s.sc*sp)%H+H)%H;c.beginPath();c.arc(x,y,(1+hs(i*5.3)*p.size)*s.sc,0,7);c.fill();}c.globalAlpha=1;},
  bars(c,p,m,s){const h=s.H*p.sz/100*clamp(m,0,1)/2;c.fillStyle=p.color;c.fillRect(0,0,s.W,h);c.fillRect(0,s.H-h,s.W,h);}});
+
+/* -- smart bones (dial-driven actions), bone locks, auto-bend -- */
+function computeDrives(t){const map={},liq={};let any=false;
+ for(const sb of S.bones){const sm=sb.smart;if(!sm||!sm.on)continue;const a=boneChan0(sb.id,t).r,side=a>=0?sm.act:sm.neg;if(!side)continue;const k=Math.min(Math.abs(a)/(sm.range||60),1);if(!k)continue;any=true;
+  for(const id in side.b){const d=side.b[id],m=map[id]||(map[id]={x:0,y:0,r:0,sx:0,sy:0});m.x+=k*d.x;m.y+=k*d.y;m.r+=k*d.r;m.sx+=k*d.sx;m.sy+=k*d.sy;}
+  for(const pid in side.l){const f=side.l[pid],o=liq[pid]||(liq[pid]=new Float32Array(f.length));if(o.length===f.length)for(let i=0;i<f.length;i++)o[i]+=k*f[i];}}
+ return any?{map,liq}:null;}
+function applyBoneLocks(pose){if(!S.bones.some(b=>b.lock))return;const done=new Set(),sub=id=>{const r=[id];for(const c of boneChildren(id))r.push(...sub(c.id));return r;};
+ const go=b=>{if(done.has(b.id))return;done.add(b.id);if(!b.lock)return;const t=getBone(b.lock);if(!t||t.id===b.id)return;go(t);const ids=sub(b.id);if(ids.includes(t.id))return;
+  const Mp=b.parent?pose.M[b.parent]:MI;let D=mmul(pose.M[t.id],minv(Mp));
+  if(b.lockMode==='rot'){const a=Math.atan2(D[1],D[0]),h=pose.W[b.id];D=mmul(mmul(mT(h[4],h[5]),mR(a)),mT(-h[4],-h[5]));}
+  for(const id of ids){pose.M[id]=mmul(D,pose.M[id]);pose.W[id]=mmul(D,pose.W[id]);}};
+ for(const b of S.order)go(b);}
+{const _cp7=computePose;computePose=function(t,rest){if(rest)return _cp7(t,rest);const D=computeDrives(t);DR=D;let pose;try{pose=_cp7(t,rest);}finally{DR=null;}LASTDR=D?{t,a:S.anim,liq:D.liq}:null;applyBoneLocks(pose);return pose;};
+ const _la=liqAt;liqAt=function(pid,t){const f=_la(pid,t),d=LASTDR&&LASTDR.t===t&&LASTDR.a===S.anim?LASTDR.liq[pid]:null;if(!d)return f;if(f&&f.length!==d.length)return f;const o=new Float32Array(d.length);for(let i=0;i<o.length;i++)o[i]=(f?f[i]:0)+d[i];return o;};
+ window.liqAt0=_la;}
+let SMS=null;
+$('#secPart').insertAdjacentHTML('beforebegin','<section class="sec" id="secSmart" data-for="rig animate"><h3>Bone tools</h3><div class="col" id="smartBody"></div></section>');
+function renderSmart(){const el=$('#smartBody');if(!el)return;const b=getBone(S.sel.bone);if(!b){el.innerHTML='<div class="empty-note">Select a bone to lock it to another bone or turn it into a smart bone dial.</div>';return;}
+ const sm=b.smart||{},cnt=s=>s?Object.keys(s.b).length+' bones, '+Object.keys(s.l||{}).length+' warps':'empty',desc=new Set(),walk=id=>{for(const c of boneChildren(id)){desc.add(c.id);walk(c.id);}};walk(b.id);
+ el.innerHTML='<div class="field"><label>Lock '+esc(b.name)+' to bone</label><select id="blkT"><option value="">Nothing</option>'+S.order.filter(o=>o.id!==b.id&&!desc.has(o.id)).map(o=>'<option value="'+o.id+'"'+(b.lock===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select></div>'
+ +(b.lock?'<div class="field"><label>Lock mode</label><select id="blkM"><option value="full"'+(b.lockMode!=='rot'?' selected':'')+'>Follow everything</option><option value="rot"'+(b.lockMode==='rot'?' selected':'')+'>Follow turning only</option></select></div>':'')
+ +'<label class="row" style="font-size:12.5px;color:var(--dim)"><input type="checkbox" id="smOn"'+(sm.on?' checked':'')+'>Smart bone (turn it like a dial)</label>'
+ +(sm.on?'<label class="row" style="font-size:12.5px;color:var(--dim)">Full action at <input type="number" id="smRange" value="'+(sm.range||60)+'" min="5" max="360" style="width:60px">&deg;</label><div style="font-size:12px;color:var(--dim)">+ side: '+cnt(sm.act)+'<br>&minus; side: '+cnt(sm.neg)+'</div>'
+  +(SMS&&SMS.sb===b.id?'<div class="empty-note">Pose the other bones (or warp parts) now, then save.</div><div class="row"><button class="btn sm primary" data-sm="savep">Save as + side</button><button class="btn sm primary" data-sm="savem">Save as &minus; side</button><button class="btn sm" data-sm="cancel">Cancel</button></div>'
+   :'<div class="row"><button class="btn sm primary" data-sm="start">Edit action</button><button class="btn sm danger" data-sm="clear">Clear</button></div><div class="empty-note">Edit action: pose bones or warp parts at the playhead, save it, and turning this bone then blends that pose in.</div>'):'');}
+function smRestore(){const t=SMS.t;for(const id in SMS.bones){const o=SMS.bones[id],e=S.anim.bones[id],ks=e&&e.keys;if(o.had)setBonePose(id,t,{x:o.c.x,y:o.c.y,r:o.c.r,sx:o.c.sx,sy:o.c.sy});else if(ks){const i=findKey(ks,t);if(i>=0)ks.splice(i,1);if(!o.hadAny)delete S.anim.bones[id];}}
+ for(const pid in SMS.liq){const o=SMS.liq[pid],e=S.anim.liq[pid],ks=e&&e.keys;if(!ks)continue;const i=findKey(ks,t);if(i>=0){if(o.had)ks[i].f=Float32Array.from(o.f);else ks.splice(i,1);}if(!ks.length)delete S.anim.liq[pid];}}
+function smSave(side){const t=SMS.t,b=getBone(SMS.sb),act={b:{},l:{}};
+ for(const id in SMS.bones){const o=SMS.bones[id].c,c=boneChan0(id,t),d={x:c.x-o.x,y:c.y-o.y,r:c.r-o.r,sx:c.sx-o.sx,sy:c.sy-o.sy};if(Math.abs(d.x)+Math.abs(d.y)+Math.abs(d.r)+Math.abs(d.sx)+Math.abs(d.sy)>1e-4)act.b[id]=d;}
+ for(const pid in SMS.liq){const cur=liqAt0(pid,t),base=SMS.liq[pid].f;if(!cur)continue;const d=Array.from(cur,(v,i)=>v-(base?base[i]:0));if(d.some(v=>Math.abs(v)>.01))act.l[pid]=d;}
+ smRestore();b.smart={...b.smart,on:true,[side]:act};SMS=null;commit();refreshAll();requestDraw();}
+$('#smartBody').addEventListener('change',e=>{const b=getBone(S.sel.bone);if(!b)return;const id=e.target.id;
+ if(id==='blkT')b.lock=e.target.value||null;else if(id==='blkM')b.lockMode=e.target.value;
+ else if(id==='smOn')b.smart={...b.smart,on:e.target.checked,range:(b.smart&&b.smart.range)||60};else if(id==='smRange')b.smart={...b.smart,range:clamp(+e.target.value||60,5,360)};else return;
+ commit();refreshAll();requestDraw();});
+$('#smartBody').addEventListener('click',e=>{const k=e.target.dataset.sm;if(!k)return;const b=getBone(S.sel.bone);if(!b)return;
+ if(k==='start'){SMS={sb:b.id,t:S.t,bones:{},liq:{}};for(const o of S.bones){if(o.id===b.id)continue;const ks=S.anim.bones[o.id]&&S.anim.bones[o.id].keys;SMS.bones[o.id]={c:{...boneChan0(o.id,S.t)},had:findKey(ks,S.t)>=0,hadAny:!!(ks&&ks.length)};}
+  for(const p of S.parts){const ks=liqKeys(p.id,false),f=liqAt0(p.id,S.t);SMS.liq[p.id]={f:f?Float32Array.from(f):null,had:!!ks&&findKey(ks,S.t)>=0};}renderSmart();toast('Pose other bones or warp parts, then save the action.');}
+ else if(k==='savep')smSave('act');else if(k==='savem')smSave('neg');
+ else if(k==='cancel'){smRestore();SMS=null;refreshAll();requestDraw();}
+ else if(k==='clear'){b.smart={...b.smart,act:null,neg:null};commit();refreshAll();requestDraw();}});
+{const _rf7=refreshAll;refreshAll=function(){_rf7();renderSmart();};}
+/* auto-bend: bones fully inside a part bend it */
+function partBoneSet(p){const key=S.skelVer+'|'+p.bx+'|'+p.by+'|'+p.bw+'|'+p.bh+'|'+(p.auto===false);if(p._pbKey===key&&p._pb)return p._pb;p._pbKey=key;p._pb=[];if(p.auto===false||!p.alpha)return p._pb;
+ const inside=(x,y)=>{const ix=Math.floor(x-p.bx),iy=Math.floor(y-p.by);for(let dy=-4;dy<=4;dy+=2)for(let dx=-4;dx<=4;dx+=2){const a=ix+dx,b=iy+dy;if(a>=0&&b>=0&&a<p.bw&&b<p.bh&&p.alpha[b*p.bw+a]>8)return true;}return false;};
+ for(const b of S.order)if(b.id!==p.bone&&inside(b.hx,b.hy)&&inside(b.tx,b.ty))p._pb.push(b.id);return p._pb;}
 
 boot();
 
